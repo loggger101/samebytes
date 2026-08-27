@@ -15,7 +15,7 @@
 #
 # Every later `git status` compares the two, sees a size mismatch, and reports
 # the file as modified.  Git never re-reads the content, because differing
-# size is normally conclusive proof of a change — a sound inference from a
+# size is normally conclusive proof of a change, a sound inference from a
 # false premise.  So the tree looks permanently dirty while `git diff` shows
 # nothing, and `git update-index --refresh` refuses to help for the same
 # reason.  The knock-on effect is worse than the cosmetics: `git merge
@@ -25,7 +25,7 @@
 # THE REPAIR
 # Re-stat the affected entries once Drive has settled.  A file is touched only
 # when its content hash ALREADY matches what the index records, so this cannot
-# stage, hide, or discard a real modification — verified by test.  Anything
+# stage, hide, or discard a real modification, verified by test.  Anything
 # genuinely changed is left exactly as it was.
 #
 # Installed via core.hooksPath (see CLAUDE.md).  Safe to run by hand at any
