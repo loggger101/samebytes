@@ -176,6 +176,51 @@ def probe_csv() -> dict:
     }
 
 
+def probe_pandas_dtypes() -> dict:
+    """The dtype contract, which is the half `probe_csv` cannot see.
+
+    `probe_csv` checks the FLOAT path: line terminator, repr, round trip.
+    Every trap this project has actually been bitten by lives on the OBJECT
+    path instead, and all three share one premise, that the dtype is inferred
+    from the data rather than declared:
+
+      empty_is_nan      an all-empty object column writes as bare commas and
+                        reads back as float64-of-NaN, so a live `""` meets a
+                        `nan`.  Trap 3 of the three that produced one identical
+                        symptom while the files hashed MATCH.
+      bool_with_gap     a bool column with one missing value.  `.astype(bool)`
+                        reads NaN and the string "False" as True, which is why
+                        `_truthy(series, default=...)` exists.
+      str_dtype         what pandas infers for a plain text column.  pandas
+                        2.x gives `object`; 3.0 gives an Arrow-backed `str`,
+                        and that change is why this probe was added.
+
+    None of these is a float, so none of them moves a cell hash on its own.
+    They move BEHAVIOUR, and a host where they differ will produce a correct
+    looking run that is wrong somewhere nothing hashes.
+    """
+    import io as _io
+
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "empty": ["", "", ""],
+        "flag":  [True, False, None],
+        "text":  ["a", "bb", "ccc"],
+    })
+    written = df.to_csv(index=False, lineterminator="\r\n")
+    back = pd.read_csv(_io.StringIO(written))
+
+    return {
+        # True means the empty column came back as all-null, whatever its dtype.
+        "empty_is_nan": bool(back["empty"].isna().all()),
+        # The dtype a missing value forces a bool column into.
+        "bool_with_gap": str(back["flag"].dtype),
+        # object (pandas 2.x) or str (pandas 3.0 Arrow-backed strings).
+        "str_dtype": str(back["text"].dtype),
+    }
+
+
 def probe_spawn() -> dict:
     """A `spawn` pool must start and a worker must see what the parent sees.
 
@@ -242,6 +287,7 @@ def collect() -> dict:
         "libm": probe_libm(),
         "numpy": probe_numpy(),
         "csv": probe_csv(),
+        "pandas": probe_pandas_dtypes(),
         "spawn": probe_spawn(),
         "host": host_facts(),
     }
