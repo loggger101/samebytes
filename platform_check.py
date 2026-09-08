@@ -311,13 +311,32 @@ def _flatten(d: dict, prefix: str = "") -> dict:
 def report(now: dict, ref: dict) -> int:
     """Print the comparison and return the process exit code.
 
-    Groups the result three ways, because the three have different remedies:
-    a CSV or spawn failure is a BUG to fix, a libm or numpy difference is a
-    property of the host that no edit will change, and a host-facts difference
-    is expected and informational.
+    Groups the result FOUR ways, because the four have different remedies:
+
+      csv.* / spawn.*   a BUG to fix.  These are the two things this repo
+                        controls: the line terminator is pinned in the five
+                        writers and in `verify.py`, and the worker pool asks
+                        for `spawn` explicitly.  A difference here means one
+                        of those was undone.
+      libm.* / numpy.*  a property of the host's math library that no edit
+                        will change.  Cell hashes stop being comparable
+                        ACROSS hosts; within one host they stay exact.
+      pandas.*          a property of the installed pandas, which no edit
+                        here will change either -- but unlike libm it moves
+                        no float, so a run can hash MATCH and still behave
+                        differently.  See `probe_pandas_dtypes`.
+      host.*            expected and informational.
+
+    The pandas bucket was split out of the defect bucket on 2026-09-08, and
+    the reason is worth keeping: `str_dtype` is `object` on pandas 2.x and
+    `str` on 3.0, so a host on the other major version was being reported
+    under a banner reading "BROKEN: these are defects", which is the one
+    thing it is not.  A checker that cries defect at a library version is the
+    "a broken checker looks exactly like a broken release" shape CLAUDE.md
+    catalogues, and this one fired on the reference host itself.
     """
     flat_now, flat_ref = _flatten(now), _flatten(ref)
-    hard, soft = [], []
+    hard, soft, lib = [], [], []
 
     for key in sorted(flat_now):
         if key.startswith("host."):
@@ -325,7 +344,12 @@ def report(now: dict, ref: dict) -> int:
         a, b = flat_now[key], flat_ref.get(key, "<absent>")
         if a == b:
             continue
-        (soft if key.startswith(("libm.", "numpy.")) else hard).append((key, b, a))
+        if key.startswith(("libm.", "numpy.")):
+            soft.append((key, b, a))
+        elif key.startswith("pandas."):
+            lib.append((key, b, a))
+        else:
+            hard.append((key, b, a))
 
     print("\n  HOST")
     for k in ("python", "implementation", "machine", "system", "libc",
@@ -361,7 +385,25 @@ def report(now: dict, ref: dict) -> int:
         print("    Re-baseline on this host (%s verify.py baseline) and every" % _PY)
         print("    comparison WITHIN this host stays exact.")
 
-    if not hard and not soft:
+    if lib:
+        print("\n  *** PANDAS DTYPE CONTRACT DIFFERS ***")
+        for key, want, got in lib:
+            print("    %-24s reference %-18s got %s" % (key, want, got))
+        print("\n    This is the installed pandas behaving differently from")
+        print("    the reference host's, and it is NOT a defect: str_dtype")
+        print("    reads `object` on pandas 2.x and `str` on 3.0.  Nothing")
+        print("    here can be edited to change it, and it moves no float, so")
+        print("    a cell hash may still MATCH.  What it moves is BEHAVIOUR,")
+        print("    on the object path where every dtype trap in CLAUDE.md")
+        print("    lives, so a run can look correct and be wrong in a place")
+        print("    nothing hashes.  Re-read the .astype(bool) and empty-string")
+        print("    rules before trusting a run from this host.")
+        print("    If this fired on the host the reference NAMES, the")
+        print("    reference is the thing that is wrong: it was recorded")
+        print("    across two hosts.  Re-record it on one")
+        print("    (%s platform_check.py --record)." % _PY)
+
+    if not hard and not soft and not lib:
         print("\n  ALL PROBES MATCH.  Cell hashes computed on this host are")
         print("  directly comparable with the ones committed in versions.md.")
         return 0
