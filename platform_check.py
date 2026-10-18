@@ -332,7 +332,7 @@ def report(now: dict, ref: dict) -> int:
     `str` on 3.0, so a host on the other major version was being reported
     under a banner reading "BROKEN: these are defects", which is the one
     thing it is not.  A checker that cries defect at a library version is the
-    "a broken checker looks exactly like a broken release" shape CLAUDE.md
+    "a broken checker looks exactly like a broken release" shape LESSONS.md
     catalogues, and this one fired on the reference host itself.
     """
     flat_now, flat_ref = _flatten(now), _flatten(ref)

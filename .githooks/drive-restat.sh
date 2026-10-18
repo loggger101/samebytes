@@ -3,7 +3,8 @@
 # Repair git's stat cache after Google Drive lies about file size.
 #
 # THE BUG
-# This working tree lives on a Google Drive File Stream mount (G:).  When git
+# This working tree has lived in synced folders: first a Google Drive File
+# Stream mount (G:), where this was diagnosed, now OneDrive.  When git
 # writes a file during checkout / merge / pull and immediately stats it, Drive
 # returns a placeholder size of 16384 bytes rather than the real size.  Git
 # caches that bogus number in the index:
@@ -31,15 +32,23 @@
 # Installed via core.hooksPath (see CLAUDE.md).  Safe to run by hand at any
 # time:  sh .githooks/drive-restat.sh
 
+# One path per LINE, never `for f in $(...)`: word splitting cut
+# `_START HERE.vbs` into two names that both failed `-f`, so the one tracked
+# path with a space in it could never be repaired.  The here-document (not a
+# pipe) keeps the loop in this shell, so the count survives it; quotePath off
+# hands non-ASCII names over as-is rather than octal-escaped.
 restated=0
-for f in $(git ls-files -m); do
-    [ -f "$f" ] || continue
+modified=$(git -c core.quotePath=false ls-files -m)
+while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
     worktree=$(git hash-object -- "$f" 2>/dev/null) || continue
     indexed=$(git rev-parse ":$f" 2>/dev/null)      || continue
     if [ "$worktree" = "$indexed" ]; then
         git update-index -- "$f" 2>/dev/null && restated=$((restated + 1))
     fi
-done
+done <<EOF
+$modified
+EOF
 
 if [ "$restated" -gt 0 ]; then
     echo "drive-restat: repaired $restated stale index entr$([ "$restated" -eq 1 ] && echo y || echo ies)"
