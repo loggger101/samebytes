@@ -15,7 +15,8 @@ the model, and both are silent:
   1. `pandas.to_csv` defaults `lineterminator` to `os.linesep`.  A catalog
      written on Linux is LF where every committed hash was taken over CRLF, so
      a byte-perfect run reports DIFFER on every cell.  This is FIXED at source
-     (the terminator is pinned in the four writers and in `verify.py`); the
+     (the terminator is pinned in every writer: calc, mineral_value, spacecost's
+     `build`, and `verify.py`); the
      check here is the regression test for that fix.
 
   2. `math.exp`, `math.log` and `math.cos` are the platform libm, and
@@ -314,8 +315,8 @@ def report(now: dict, ref: dict) -> int:
     Groups the result FOUR ways, because the four have different remedies:
 
       csv.* / spawn.*   a BUG to fix.  These are the two things this repo
-                        controls: the line terminator is pinned in the five
-                        writers and in `verify.py`, and the worker pool asks
+                        controls: the line terminator is pinned in every
+                        CSV writer and in `verify.py`, and the worker pool asks
                         for `spawn` explicitly.  A difference here means one
                         of those was undone.
       libm.* / numpy.*  a property of the host's math library that no edit

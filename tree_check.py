@@ -43,9 +43,9 @@ decorative.
 IT READS THE WHOLE TREE RATHER THAN A CURATED LIST, deliberately. The lesson
 this repo learned the day before this file was written is that a check which
 reads one row of a table is a check on that row, and a hand-maintained file
-list is that same defect wearing different clothes. All 147 tracked files hash
-in 0.25 s, three git invocations regardless of count, so there is nothing to
-buy by narrowing it.
+list is that same defect wearing different clothes. The whole tree hashes in
+well under a second, three git invocations regardless of count, so there is
+nothing to buy by narrowing it.
 
 AND READING IS ALSO THE CURE, so this is a prophylactic as well as a detector.
 Materialisation is what a read does anyway, so calling this first in a harness
@@ -184,7 +184,7 @@ def verify_tree(repo=REPO):
         to_hash.append(path)
 
     got = working_hashes(to_hash, repo)
-    if not got:
+    if to_hash and not got:
         return [], 0, "git hash-object could not read the working tree"
     for path in to_hash:
         if got.get(path) != blobs[path]:
@@ -219,12 +219,23 @@ def assert_tree(label=""):
 
 
 def main():
-    """Standalone entry point, so the check is runnable without a harness."""
+    """Standalone entry point, so the check is runnable without a harness.
+
+    Exit 0 verified, 1 a finding, 2 skipped.  A harness calls `assert_tree`,
+    which lets a skip through so a plain copy can still be measured; run on its
+    own, this IS the result, and until 2026-10-18 a skip printed `OK  TREE
+    VERIFIED` and exited 0 -- so CI's step, whose stated job is to show the
+    skip path is not the one running, could not have told.
+    """
     print("=" * 70)
     print("  WORKING TREE CHECK  -  does the disk hold what git says it holds?")
     print("=" * 70)
     ok = assert_tree()
+    skip = verify_tree()[2] if ok else ""
     print("-" * 70)
+    if skip:
+        print("  NOT VERIFIED -- the check SKIPPED (%s)" % skip)
+        return 2
     print("  OK  TREE VERIFIED" if ok else "  *** TREE NOT VERIFIED ***")
     return 0 if ok else 1
 
