@@ -3,8 +3,9 @@
 
 The pipeline is portable: every path goes through `os.path.join`, the worker
 pool asks for `spawn` explicitly rather than inheriting the platform default,
-and nothing imports a Windows API outside `launch_ui.py`, which degrades on its
-own.  So `run_pipeline.py` runs on Linux as it stands.
+and nothing imports a Windows API outside the dashboard launcher (`launch_ui.py`
+and the quietlaunch package it runs), which degrades on its own.  So
+`run_pipeline.py` runs on Linux as it stands.
 
 What does NOT travel is BIT-IDENTITY, and that is the whole currency of this
 project: every release in `versions.md` is argued from a cell hash, and the
