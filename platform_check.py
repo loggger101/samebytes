@@ -56,8 +56,8 @@ import sys
 # The launcher to name in a printed instruction.  `py` is the Windows launcher
 # and does not exist anywhere else, so a hint that says it is wrong advice on
 # the host that most needs the hint.  Not shared between files on purpose: the
-# four modules must stay standalone for the Colab paste, and this is one
-# expression, not a manifest.
+# four modules each run standalone, and this is one expression, not a
+# manifest.
 _PY = "py" if os.name == "nt" else os.path.basename(sys.executable)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
