@@ -1,0 +1,16 @@
+# LF everywhere. core.autocrlf is true in Git for Windows' system config, and a
+# CRLF workflow file reaches the Linux runner's shell as a trailing carriage
+# return on every command. The hooks are the reason this file is not optional:
+# a CRLF `#!/bin/sh` fails as "bad interpreter", silently, after every checkout.
+*.py    text eol=lf
+*.sh    text eol=lf
+samebytes/hooks/*  text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+LICENSE        text eol=lf

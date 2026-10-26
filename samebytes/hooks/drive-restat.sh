@@ -3,8 +3,8 @@
 # Repair git's stat cache after Google Drive lies about file size.
 #
 # THE BUG
-# This working tree has lived in synced folders: first a Google Drive File
-# Stream mount (G:), where this was diagnosed, now OneDrive.  When git
+# Diagnosed in economicspace, whose tree has lived in synced folders: first a
+# Google Drive File Stream mount (G:), then OneDrive.  When git
 # writes a file during checkout / merge / pull and immediately stats it, Drive
 # returns a placeholder size of 16384 bytes rather than the real size.  Git
 # caches that bogus number in the index:
@@ -29,7 +29,10 @@
 # stage, hide, or discard a real modification, verified by test.  Anything
 # genuinely changed is left exactly as it was.
 #
-# Installed via core.hooksPath (see CLAUDE.md).  Safe to run by hand at any
+# Shipped by samebytes; `python -m samebytes hooks install <repo>` copies it
+# and the three post-* hooks into <repo>/.githooks and sets core.hooksPath,
+# and `hooks check` says when a copy has drifted.  The repo's .gitattributes
+# must pin `.githooks/* text eol=lf`.  Safe to run by hand at any
 # time:  sh .githooks/drive-restat.sh
 
 # One path per LINE, never `for f in $(...)`: word splitting cut

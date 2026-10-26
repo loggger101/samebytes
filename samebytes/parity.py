@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 """Is THIS host able to reproduce the committed numbers?  Answer in ~10 seconds.
 
-The pipeline is portable: every path goes through `os.path.join`, the worker
-pool asks for `spawn` explicitly rather than inheriting the platform default,
-and nothing imports a Windows API outside the dashboard launcher (`launch_ui.py`
-and the quietlaunch package it runs), which degrades on its own.  So
-`run_pipeline.py` runs on Linux as it stands.
+Written for economicspace (as `platform_check.py`), an asteroid-mining
+pipeline whose code is portable: every path goes through `os.path.join` and
+its worker pool asks for `spawn` explicitly.
 
-What does NOT travel is BIT-IDENTITY, and that is the whole currency of this
-project: every release in `versions.md` is argued from a cell hash, and the
-20-cell campaign is 26 hours of work whose value is that it can be compared to
-one.  Two things can break that comparison without anything being wrong with
-the model, and both are silent:
+What does NOT travel is BIT-IDENTITY, and that is the whole currency of that
+project: every release is argued from a cell hash, and a 20-cell campaign is
+26 hours of work whose value is that it can be compared to one.  Two things
+can break that comparison without anything being wrong with the model, and
+both are silent:
 
   1. `pandas.to_csv` defaults `lineterminator` to `os.linesep`.  A catalog
      written on Linux is LF where every committed hash was taken over CRLF, so
@@ -28,40 +26,61 @@ the model, and both are silent:
      `np.power(10.0, -H / 5.0)`, so a one-ULP difference there is not academic.
      This one CANNOT be fixed, only measured, which is what this file is for.
 
+The probe ARGUMENT RANGES are that model's own (see each probe), and they are
+kept exactly as recorded: a reference file is only comparable with the probe
+set that wrote it.
+
 Usage:
 
-    python platform_check.py --record     # on the reference host, once
-    python platform_check.py              # on the new host: compare and report
+    python -m samebytes parity --record    # on the reference host, once
+    python -m samebytes parity             # on the new host: compare and report
 
-`--record` writes `platform_reference.json`, which is committed.  The default
-mode recomputes every probe and diffs it against that file.  It is deliberately
-the same baseline/check shape as `verify.py`, and for the same reason: a
-reference value that is typed into prose is a number waiting to rot, so this
-one is derived on both sides and never written down by hand.
+`--record` writes the reference (`platform_reference.json` in the current
+directory unless `--reference` names another), which the project commits.
+The default mode recomputes every probe and diffs it against that file.  It
+is deliberately a baseline/check shape, and for the usual reason: a reference
+value that is typed into prose is a number waiting to rot, so this one is
+derived on both sides and never written down by hand.
+
+A project that wraps this (economicspace's `platform_check.py` does) passes
+its reference path and its own commands for the printed hints; see `HINTS`.
 
 Exit codes: 0 all probes match, 1 a probe differs, 2 the reference is missing.
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
 import platform
-import struct
 import sys
+
+from .frames import float_hash
 
 
 # The launcher to name in a printed instruction.  `py` is the Windows launcher
 # and does not exist anywhere else, so a hint that says it is wrong advice on
-# the host that most needs the hint.  Not shared between files on purpose: the
-# four modules each run standalone, and this is one expression, not a
-# manifest.
+# the host that most needs the hint.
 _PY = "py" if os.name == "nt" else os.path.basename(sys.executable)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REFERENCE = os.path.join(HERE, "platform_reference.json")
+DEFAULT_REFERENCE = "platform_reference.json"
+
+# The four project-specific phrases the report prints.  A wrapper passes its
+# own (economicspace names `verify.py baseline` and CLAUDE.md); these defaults
+# name this package's commands.
+#   rebaseline      what re-takes a baseline on this host
+#   record          what re-records the reference, in the pandas advice
+#   record_missing  what to run when there is no reference file at all
+#   traps_doc       where the project writes down its dtype traps
+#   hashes_doc      where the project keeps the hashes a match makes comparable
+HINTS = {
+    "rebaseline": "re-take your baselines here",
+    "record": "%s -m samebytes parity --record" % _PY,
+    "record_missing": "python -m samebytes parity --record",
+    "traps_doc": "your code",
+    "hashes_doc": "your records",
+}
 
 
 # -----------------------------------------------------------------------------
@@ -73,12 +92,10 @@ def _hash_floats(values) -> str:
     `struct.pack` rather than `repr` because this has to be sensitive to the
     last bit and nothing else: repr would compare correctly today and hide a
     difference the moment anything reformatted it.  Sixteen digits to match the
-    width `verify.py` and every release note already quote.
+    width economicspace's `verify.py` and every release note already quote.
+    The one implementation is `frames.float_hash`.
     """
-    h = hashlib.sha256()
-    for v in values:
-        h.update(struct.pack("<d", float(v)))
-    return h.hexdigest()[:16]
+    return float_hash(values, 16)
 
 
 def _grid(lo: float, hi: float, n: int):
@@ -310,16 +327,19 @@ def _flatten(d: dict, prefix: str = "") -> dict:
     return out
 
 
-def report(now: dict, ref: dict) -> int:
+def report(now: dict, ref: dict, hints: dict = None) -> int:
     """Print the comparison and return the process exit code.
+
+    `hints` overrides any of `HINTS`, the project-specific phrases printed in
+    the advice.
 
     Groups the result FOUR ways, because the four have different remedies:
 
-      csv.* / spawn.*   a BUG to fix.  These are the two things this repo
-                        controls: the line terminator is pinned in every
-                        CSV writer and in `verify.py`, and the worker pool asks
-                        for `spawn` explicitly.  A difference here means one
-                        of those was undone.
+      csv.* / spawn.*   a BUG to fix.  These are the two things a project
+                        controls: the line terminator pinned in every CSV
+                        writer, and a worker pool that asks for `spawn`
+                        explicitly.  A difference here means one of those was
+                        undone.
       libm.* / numpy.*  a property of the host's math library that no edit
                         will change.  Cell hashes stop being comparable
                         ACROSS hosts; within one host they stay exact.
@@ -334,9 +354,11 @@ def report(now: dict, ref: dict) -> int:
     `str` on 3.0, so a host on the other major version was being reported
     under a banner reading "BROKEN: these are defects", which is the one
     thing it is not.  A checker that cries defect at a library version is the
-    "a broken checker looks exactly like a broken release" shape LESSONS.md
-    catalogues, and this one fired on the reference host itself.
+    "a broken checker looks exactly like a broken release" shape
+    economicspace's LESSONS.md catalogues, and this one fired on the reference
+    host itself.
     """
+    h = dict(HINTS, **(hints or {}))
     flat_now, flat_ref = _flatten(now), _flatten(ref)
     hard, soft, lib = [], [], []
 
@@ -384,7 +406,7 @@ def report(now: dict, ref: dict) -> int:
         print("    means is that a cell hash produced here will not equal a")
         print("    cell hash produced there, so the two hosts' runs must be")
         print("    compared on VALUES with a tolerance, not on hashes.")
-        print("    Re-baseline on this host (%s verify.py baseline) and every" % _PY)
+        print("    Re-baseline on this host (%s) and every" % h["rebaseline"])
         print("    comparison WITHIN this host stays exact.")
 
     if lib:
@@ -396,28 +418,37 @@ def report(now: dict, ref: dict) -> int:
         print("    reads `object` on pandas 2.x and `str` on 3.0.  Nothing")
         print("    here can be edited to change it, and it moves no float, so")
         print("    a cell hash may still MATCH.  What it moves is BEHAVIOUR,")
-        print("    on the object path where every dtype trap in CLAUDE.md")
+        print("    on the object path where every dtype trap in %s" % h["traps_doc"])
         print("    lives, so a run can look correct and be wrong in a place")
         print("    nothing hashes.  Re-read the .astype(bool) and empty-string")
         print("    rules before trusting a run from this host.")
         print("    If this fired on the host the reference NAMES, the")
         print("    reference is the thing that is wrong: it was recorded")
         print("    across two hosts.  Re-record it on one")
-        print("    (%s platform_check.py --record)." % _PY)
+        print("    (%s)." % h["record"])
 
     if not hard and not soft and not lib:
         print("\n  ALL PROBES MATCH.  Cell hashes computed on this host are")
-        print("  directly comparable with the ones committed in versions.md.")
+        print("  directly comparable with the ones committed in %s." % h["hashes_doc"])
         return 0
     return 1
 
 
-def main() -> int:
-    """Record a reference, or check this host against one."""
+def main(argv=None, reference: str = None, hints: dict = None) -> int:
+    """Record a reference, or check this host against one.
+
+    `reference` is the file a wrapper owns; given, it is the default for
+    `--reference`.  `hints` is passed to `report` and supplies the missing-
+    reference instruction.
+    """
+    h = dict(HINTS, **(hints or {}))
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--record", action="store_true",
-                    help="write platform_reference.json for this host")
-    args = ap.parse_args()
+                    help="write the reference file for this host")
+    ap.add_argument("--reference", default=reference or DEFAULT_REFERENCE,
+                    help="the reference file (default: %(default)s)")
+    args = ap.parse_args(argv)
+    ref_path = args.reference
 
     print("=" * 72)
     print("  PLATFORM PARITY PROBE")
@@ -426,23 +457,23 @@ def main() -> int:
     now = collect()
 
     if args.record:
-        with open(REFERENCE, "w", encoding="utf-8", newline="") as f:
+        with open(ref_path, "w", encoding="utf-8", newline="") as f:
             json.dump(now, f, indent=2, sort_keys=True)
             f.write("\n")
-        print("\n  Recorded -> %s" % REFERENCE)
+        print("\n  Recorded -> %s" % ref_path)
         for k, v in sorted(_flatten(now).items()):
             print("    %-26s %s" % (k, v))
         return 0
 
-    if not os.path.exists(REFERENCE):
-        print("\n  No reference file at %s" % REFERENCE)
-        print("  Run:  python platform_check.py --record")
+    if not os.path.exists(ref_path):
+        print("\n  No reference file at %s" % ref_path)
+        print("  Run:  %s" % h["record_missing"])
         return 2
 
-    with open(REFERENCE, encoding="utf-8") as f:
+    with open(ref_path, encoding="utf-8") as f:
         ref = json.load(f)
 
-    rc = report(now, ref)
+    rc = report(now, ref, hints)
     print("")
     return rc
 

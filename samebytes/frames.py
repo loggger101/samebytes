@@ -1,66 +1,93 @@
-def _comparable(df):
-    """The frame with every provenance column removed.
+# -*- coding: utf-8 -*-
+"""Are these two runs the same?  A hash that is the authority, and a column diff
+that is the diagnostic.
+
+Written as part of economicspace's release harness (`verify.py`), whose header
+lists the harness bugs that each line below defends against.  Four of them were
+DIFFERENT causes of one identical symptom: columns reported as DIFFER beside a
+byte-identical hash.  The rules that came out of them:
+
+  - The hash is taken over CSV text with the line terminator PINNED to CRLF,
+    never `os.linesep`, because the committed hashes are hashes of CRLF.
+  - Columns the caller names as provenance (a version stamp, a wall-clock date)
+    are dropped before hashing; column ORDER is never touched.
+  - Columns are compared by POSITION, not by index label.
+  - None, NaN and the empty string are one value: a CSV cannot tell them apart.
+  - Text columns are recognised by dtype KIND, so pandas 3's Arrow-backed `str`
+    is text too.
+  - Read a CSV back with `float_precision="round_trip"`: the default parser is
+    not correctly rounded.  In COMPARISONS only; a pipeline that reads its
+    inputs with the default parser is deterministic, and switching it would
+    move every number.
+
+numpy and pandas are imported only when a function needs them, so this package
+installs with no dependencies and can never move a pinned version.
+"""
+import hashlib
+import struct
+from typing import Iterable, List, Sequence, Tuple
+
+
+def comparable(df, drop: Sequence[str] = ()):
+    """The frame with every provenance column (`drop`) removed.
 
     Column ORDER is left alone deliberately.  Sorting them would be tidier and
-    would silently make every hash this file prints incomparable with the eight
-    already committed in versions.md -- which is the whole point of printing one.
+    would silently make every hash printed from it incomparable with the ones
+    already committed -- which is the whole point of printing one.
     """
-    return df[[c for c in df.columns if c not in PROVENANCE]]
+    return df[[c for c in df.columns if c not in drop]]
 
 
-def _csv(df) -> str:
-    """The canonical text a cell hashes to.
+def canonical_csv(df, drop: Sequence[str] = ()) -> str:
+    """The canonical text a frame hashes to.
 
-    The baseline stored on disk IS these bytes, so a hash comparison is a byte
+    A baseline stored on disk IS these bytes, so a hash comparison is a byte
     comparison of the file and needs no parsing at all -- which is why the hash
-    is the authority here and the column diff is the diagnostic.
+    is the authority and the column diff is the diagnostic.
 
     to_csv writes floats at repr precision, so nothing is lost on the way OUT.
-    Reading them back is the lossy direction: see _read_baseline.
+    Reading them back is the lossy direction: see `read_exact`.
 
-    lineterminator is PINNED, and leaving it off is trap #12.  pandas defaults
-    it to `os.linesep`, so this function returns CRLF text on Windows and LF
-    text on Linux -- and the hash is taken over exactly this string.  Every
-    cell hash in versions.md was computed on Windows, over CRLF, so the same
-    build on Linux reproduces every float and still reports DIFFER on all four
-    cells.  That is the eleven-entry table in this header happening a twelfth
-    time: a broken comparator that looks exactly like a broken release.  CRLF
-    is pinned rather than LF because CRLF is what the committed hashes are OF.
+    lineterminator is PINNED, and leaving it off was the twelfth harness bug in
+    economicspace.  pandas defaults it to `os.linesep`, so this function would
+    return CRLF text on Windows and LF text on Linux -- and the hash is taken
+    over exactly this string.  Every committed cell hash was computed on
+    Windows, over CRLF, so the same build on Linux reproduces every float and
+    still reports DIFFER on every cell: a broken comparator that looks exactly
+    like a broken release.  CRLF is pinned rather than LF because CRLF is what
+    the committed hashes are OF.
     """
-    return _comparable(df).to_csv(index=False, lineterminator="\r\n")
+    return comparable(df, drop).to_csv(index=False, lineterminator="\r\n")
 
 
-def cell_hash(df) -> str:
-    """First 16 hex digits of the sha256 of the cell's comparable CSV.
+def frame_hash(df, drop: Sequence[str] = (), width: int = 16) -> str:
+    """The first `width` hex digits of the sha256 of `canonical_csv(df, drop)`.
 
-    Sixteen because that is the width every release note in versions.md quotes,
-    and this harness reproduces the four hashes committed for v1.17.4 and
-    v1.17.6 exactly. It goes through `_csv` / `_comparable`, which strips BOTH
-    provenance columns and deliberately does NOT sort the remaining ones:
-    sorting would be tidier and would silently make every hash printed here
-    incomparable with the ones already on record.
+    Sixteen by default because that is the width economicspace's release notes
+    quote, and its harness reproduces the hashes committed for v1.17.4 and
+    v1.17.6 exactly through this function.
     """
-    return hashlib.sha256(_csv(df).encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(canonical_csv(df, drop).encode("utf-8")).hexdigest()[:width]
 
 
-def column_diff(a, b) -> Tuple[int, int, List[str]]:
-    """(identical, compared, differing) over the shared non-provenance columns.
+def column_diff(a, b, drop: Sequence[str] = ()) -> Tuple[int, int, List[str]]:
+    """(identical, compared, differing) over the shared columns not in `drop`.
 
-    Compared POSITIONALLY, via .to_numpy(), and that is not a detail.
-    build_profitability_catalog returns its rows SORTED by the objective, so a
-    live frame carries a scrambled index while the same frame re-read from CSV
-    carries a fresh RangeIndex.  Comparing the two Series directly makes pandas
-    align on the index LABEL, so nearly every float column reports as differing
-    while the file hashes identical -- which is the ninth entry in this file's
-    header, found by this very function on the run it was written for.  The
-    hash said MATCH and the column diff said DIFFER, and the hash was right.
+    Compared POSITIONALLY, via .to_numpy(), and that is not a detail.  A frame
+    returned SORTED by some objective carries a scrambled index while the same
+    frame re-read from CSV carries a fresh RangeIndex.  Comparing the two Series
+    directly makes pandas align on the index LABEL, so nearly every float
+    column reports as differing while the file hashes identical.  The hash said
+    MATCH and the column diff said DIFFER, and the hash was right.
 
     Nulls are normalised to one spelling before comparing.  A parquet round trip
     renders a None in an object column back as nan, so a naive per-column
-    astype(str) reports thrust_scaling, isru_feed_material and name as differing
-    when they are identical -- v1.17.1 lost time to exactly that.
+    astype(str) reports identical text columns as differing.
+
+    Float columns are compared exactly, NaN equal to NaN; every other dtype
+    (object, pandas 3's `str`, bool, int) goes through `blanks`.
     """
-    shared = [c for c in a.columns if c in b.columns and c not in PROVENANCE]
+    shared = [c for c in a.columns if c in b.columns and c not in drop]
     differing = []
     for c in shared:
         x, y = a[c], b[c]
@@ -71,59 +98,71 @@ def column_diff(a, b) -> Tuple[int, int, List[str]]:
             xv, yv = x.to_numpy(), y.to_numpy()
             same = bool(((xv == yv) | (_isnan(xv) & _isnan(yv))).all())
         else:
-            same = _blanks(x) == _blanks(y)
+            same = blanks(x) == blanks(y)
         if not same:
             differing.append(c)
     return len(shared) - len(differing), len(shared), differing
 
 
-def _blanks(s) -> list:
+def blanks(s) -> list:
     """A column as a list with every spelling of "nothing here" collapsed to None.
 
-    None, NaN and the EMPTY STRING all become None, and that last one is trap
-    #11.  An all-empty object column written by to_csv is a run of bare commas,
-    and read_csv types that column as float64-of-NaN -- so a live `""` comes
-    back as `nan` and a naive comparison calls them different.  They are not:
-    a CSV cannot represent the difference, so the file's own hash cannot see it
-    either, and a comparator stricter than the artefact it compares reports
-    failures that do not exist.  `payload_mix` and `payload_dominant_phase` are
-    empty on every row of a raw cell and were the last two columns to fall.
+    None, NaN and the EMPTY STRING all become None, and that last one was the
+    eleventh harness bug.  An all-empty object column written by to_csv is a
+    run of bare commas, and read_csv types that column as float64-of-NaN -- so
+    a live `""` comes back as `nan` and a naive comparison calls them
+    different.  They are not: a CSV cannot represent the difference, so the
+    file's own hash cannot see it either, and a comparator stricter than the
+    artefact it compares reports failures that do not exist.
     """
     return [None if (v is None or v != v or v == "") else v
             for v in s.to_numpy().tolist()]
 
 
 def _isnan(v):
-    """numpy's isnan, imported lazily so the module imports without pandas.
+    """numpy's isnan, imported lazily so the module imports without numpy.
 
-    Only ever called on a value already known to be a float, which is why there
-    is no type guard: `math.isnan` would do as well here and numpy is already
-    loaded by the time any comparison runs.
+    Only ever called on a value already known to be a float array, which is why
+    there is no type guard.
     """
     import numpy as np
     return np.isnan(v)
 
 
-def _read_baseline(pd, path):
-    """Read a baseline cell back WITHOUT losing the last bit of every float.
+def read_exact(path_or_buf, **kwargs):
+    """`pandas.read_csv` that does not lose the last bit of any float.
 
-    float_precision="round_trip" is mandatory, and leaving it off is trap #10 in
-    the header.  pandas' default C parser is a fast float reader that is NOT
-    correctly rounded, so it returns a float64 one ULP away from the one that
-    was written -- `119898.18458829961` comes back as `119898.1845882996`.
-    Neither "high" nor the default round-trips; only "round_trip" does.
+    float_precision="round_trip" is mandatory here, and leaving it off was the
+    tenth harness bug.  pandas' default C parser is a fast float reader that is
+    NOT correctly rounded, so it returns a float64 one ULP away from the one
+    that was written -- `119898.18458829961` comes back as `119898.1845882996`.
+    Neither "high" nor the default round-trips; only "round_trip" does.  That
+    produced 64 of 139 columns reported as DIFFER while every file hashed
+    byte-identical.
 
-    That produced the same symptom as trap #9 and had to be diagnosed
-    separately: 64 of 139 columns reported as DIFFER while all four cells
-    hashed byte-identical to the baseline.  Same family as the pyarrow CSV
-    engine v1.17.4 measured and rejected -- a different float parser rounding
-    differently in the last ULP -- and the same lesson: a comparison is only as
-    exact as the slackest step in it.
+    `low_memory=False` unless the caller says otherwise; any other read_csv
+    argument passes through.  Passing `float_precision` is refused rather than
+    silently obeyed, because the only reason to call this is that one argument.
 
-    NOTE this says nothing about the pipeline itself.  load_all_catalogs reads
-    with the default parser too, so the model's inputs go through the same
-    slightly-inexact reader on every run -- which is deterministic, and is
-    therefore why bit-identity holds at all.  Do not "fix" that: changing
-    float_precision there would move every number in the model.
+    FOR COMPARISONS ONLY.  A pipeline that reads its own inputs with the
+    default parser is deterministic, and that is why its bit-identity holds;
+    switching its loader to this would move every number it produces.
     """
-    return pd.read_csv(path, low_memory=False, float_precision="round_trip")
+    if "float_precision" in kwargs:
+        raise TypeError("read_exact always reads with float_precision='round_trip'")
+    import pandas as pd
+    kwargs.setdefault("low_memory", False)
+    return pd.read_csv(path_or_buf, float_precision="round_trip", **kwargs)
+
+
+def float_hash(values: Iterable[float], width: int = 16) -> str:
+    """sha256 of the raw IEEE 754 bit patterns, first `width` hex digits.
+
+    `struct.pack` rather than `repr` because this has to be sensitive to the
+    last bit and nothing else: repr would compare correctly today and hide a
+    difference the moment anything reformatted it.
+    """
+    h = hashlib.sha256()
+    for v in values:
+        h.update(struct.pack("<d", float(v)))
+    return h.hexdigest()[:width]

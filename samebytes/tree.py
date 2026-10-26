@@ -2,7 +2,8 @@
 """Does the working tree contain the bytes git says it contains?
 
 This exists because of ONE observed failure, on 2026-09-15, which every other
-harness in this repo reported as a clean pass:
+harness in economicspace (where this file was written, as `tree_check.py`)
+reported as a clean pass:
 
     verify_stage3.py's first run of the day printed FOUR checks.
     Every later run printed SIX.
@@ -17,7 +18,7 @@ invisible to one `verify_docs.py` run and visible to the next.
 WHY A CHECK IS POSSIBLE AT ALL, WHICH IS NOT OBVIOUS. `git status` said clean
 the whole time, so the obvious check looks useless. It is clean because git's
 stat cache trusts SIZE and MTIME and never re-reads content, the same cache
-whose other direction is the phantom-dirty tree that `.githooks/drive-restat.sh`
+whose other direction is the phantom-dirty tree that `hooks/drive-restat.sh`
 repairs. So git's opinion and the file's CONTENT are two independent readings,
 and the failure is exactly the case where they disagree:
 
@@ -32,8 +33,9 @@ The last two are the finding. Reproduced deliberately before this was trusted:
 change one byte of a tracked file without changing its length, restore its
 mtime, and `git status --short` returns EMPTY while the content hash moves.
 
-HASH THROUGH `git hash-object`, NEVER sha1 OF THE RAW BYTES. `.gitattributes`
-pins `*.py` to LF and `*.bat` to CRLF, and the index stores the normalised form,
+HASH THROUGH `git hash-object`, NEVER sha1 OF THE RAW BYTES. economicspace's
+`.gitattributes` pins `*.py` to LF and `*.bat` to CRLF, and the index stores
+the normalised form,
 so raw bytes disagree with the index for every CRLF file by construction.
 `git hash-object` applies the same filters git would: measured, `run.bat`
 matches its index blob through `hash-object` and does NOT through
@@ -41,7 +43,7 @@ matches its index blob through `hash-object` and does NOT through
 decorative.
 
 IT READS THE WHOLE TREE RATHER THAN A CURATED LIST, deliberately. The lesson
-this repo learned the day before this file was written is that a check which
+economicspace learned the day before this file was written is that a check which
 reads one row of a table is a check on that row, and a hand-maintained file
 list is that same defect wearing different clothes. The whole tree hashes in
 well under a second, three git invocations regardless of count, so there is
@@ -58,12 +60,18 @@ loaded by the time this executes. It is caught in practice because the mount
 served stale bytes for a whole PROCESS rather than for a single read, so the
 later re-read still sees them; it is not caught in principle, because a
 materialisation landing between the import and this call would hide it. Every
-file a harness reads AFTER this point is fully covered.
+file a harness reads AFTER this point is fully covered. Installed as a
+package, this module is read from site-packages rather than from the synced
+tree, so the checker's own bytes are no longer served by the mount it checks;
+the harness that calls it still is.
+
+THE REPOSITORY IS ALWAYS NAMED BY THE CALLER. As `tree_check.py` this file
+checked the directory it sat in; installed, that directory is site-packages,
+so every function here takes `repo` and none of them has a default.
 """
 import os
 import subprocess
-
-REPO = os.path.dirname(os.path.abspath(__file__))
+import sys
 
 # Modes git can list that are not a plain file on disk: a submodule pointer and
 # a symlink. `git hash-object` on either means something different from "hash
@@ -83,7 +91,7 @@ def _git(args, repo):
     return out.stdout.decode("utf-8", "replace")
 
 
-def index_blobs(repo=REPO):
+def index_blobs(repo):
     """Tracked regular files as {path: blob sha}, plus the skipped count.
 
     `git ls-files -s -z` emits one NUL-terminated record per file, shaped
@@ -105,7 +113,7 @@ def index_blobs(repo=REPO):
     return blobs, skipped
 
 
-def changed_paths(repo=REPO):
+def changed_paths(repo):
     """Paths git itself reports as changed, so an edit is not read as a finding.
 
     `git status --porcelain -z` emits NUL-terminated `XY path` records, and a
@@ -127,13 +135,13 @@ def changed_paths(repo=REPO):
     return out
 
 
-def working_hashes(paths, repo=REPO):
+def working_hashes(paths, repo):
     """Bytes on disk as {path: blob sha}, with `.gitattributes` applied.
 
     One `git hash-object --stdin-paths` for the whole list; it reads paths one
     per line, so a name containing a space needs no quoting and
-    `_START HERE.vbs` round-trips. Verified against the index for that file and
-    for `run.bat`.
+    economicspace's `_START HERE.vbs` round-trips. Verified against the index
+    for that file and for its CRLF `run.bat`.
     """
     if not paths:
         return {}
@@ -151,7 +159,7 @@ def working_hashes(paths, repo=REPO):
     return dict(zip(paths, shas))
 
 
-def verify_tree(repo=REPO):
+def verify_tree(repo):
     """Return (findings, files verified, skip reason).
 
     A finding is a tracked file whose CONTENT disagrees with the index while git
@@ -194,14 +202,14 @@ def verify_tree(repo=REPO):
     return findings, len(to_hash), ""
 
 
-def assert_tree(label=""):
+def assert_tree(repo, label=""):
     """Print the one-line verdict; return False only on a real finding.
 
     Callers put this BEFORE the work, because the point is to refuse to quote a
     result computed from bytes the repository does not hold. A skip prints and
     returns True: it is not a pass, and the message says which it is.
     """
-    findings, n, skip = verify_tree()
+    findings, n, skip = verify_tree(repo)
     tag = ("%s: " % label) if label else ""
     if skip:
         print("  %stree      SKIPPED (%s)" % (tag, skip))
@@ -218,8 +226,12 @@ def assert_tree(label=""):
     return True
 
 
-def main():
+def main(repo=None):
     """Standalone entry point, so the check is runnable without a harness.
+
+    `repo` defaults to the current directory, the only default anywhere in
+    this module, because a person typing the command is standing in the tree
+    they mean.
 
     Exit 0 verified, 1 a finding, 2 skipped.  A harness calls `assert_tree`,
     which lets a skip through so a plain copy can still be measured; run on its
@@ -227,11 +239,12 @@ def main():
     VERIFIED` and exited 0 -- so CI's step, whose stated job is to show the
     skip path is not the one running, could not have told.
     """
+    repo = os.path.abspath(repo or os.getcwd())
     print("=" * 70)
     print("  WORKING TREE CHECK  -  does the disk hold what git says it holds?")
     print("=" * 70)
-    ok = assert_tree()
-    skip = verify_tree()[2] if ok else ""
+    ok = assert_tree(repo)
+    skip = verify_tree(repo)[2] if ok else ""
     print("-" * 70)
     if skip:
         print("  NOT VERIFIED -- the check SKIPPED (%s)" % skip)
@@ -241,4 +254,4 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else None))
