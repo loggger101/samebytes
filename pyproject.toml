@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "samebytes"
 dynamic = ["version"]
-description = "Are these the same bytes? Checks that a working tree holds what git's index says, that a host reproduces recorded float results bit for bit, and that two pandas runs match; plus a git hook that repairs git's stat cache in synced folders."
+description = "Are these the same bytes? Checks that a working tree holds what git's index says, that a host reproduces recorded float results bit for bit, and that two pandas runs match; plus a git hook that repairs git's stat cache in synced folders, and shared docs and source-code house-rule checks."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -16,7 +16,7 @@ authors = [{ name = "Logan M Edwards" }]
 keywords = [
     "bit-identity", "reproducibility", "hash", "pandas", "csv", "git",
     "git-hooks", "onedrive", "google-drive", "synced-folder", "libm",
-    "floating-point", "regression",
+    "floating-point", "regression", "markdown", "docs", "lint",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

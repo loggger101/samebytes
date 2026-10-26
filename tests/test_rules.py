@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
-"""House rules over the package source: ASCII, docstrings, no dependency at import, the CLI."""
-import ast
+"""House rules over the package source: ASCII, docstrings, no dependency at import, the CLI.
+
+The rules run through `samebytes.docs` and `samebytes.source`, the same checks
+the consumers' tests call; `test_docs.py` and `test_source.py` plant a defect
+for each, so passing here is not the checker vouching for itself.
+"""
 import pathlib
 import subprocess
 import sys
 
 import pytest
 
-PKG = pathlib.Path(__file__).resolve().parent.parent / "samebytes"
+from samebytes import docs, source
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PKG = ROOT / "samebytes"
 SOURCES = sorted(PKG.glob("*.py"))
 HOOK_FILES = sorted((PKG / "hooks").iterdir())
-STDLIB = set(getattr(sys, "stdlib_module_names", ())) or {
-    "argparse", "hashlib", "json", "math", "os", "platform", "struct", "subprocess",
-    "sys", "typing", "__future__", "multiprocessing", "io", "re", "importlib"}
+DOCS = ["README.md", "CHANGELOG.md", "CLAUDE.md"]
 LAZY = {"numpy", "pandas"}
 
 
@@ -20,7 +25,7 @@ def test_sources_found():
     """The rules below read real files, not an empty glob."""
     assert {p.name for p in SOURCES} >= {"__init__.py", "__main__.py", "tree.py",
                                          "parity.py", "frames.py", "hooks.py",
-                                         "provenance.py"}
+                                         "provenance.py", "docs.py", "source.py"}
     assert {p.name for p in HOOK_FILES} == {"drive-restat.sh", "post-checkout",
                                             "post-merge", "post-rewrite"}
 
@@ -28,9 +33,7 @@ def test_sources_found():
 @pytest.mark.parametrize("path", SOURCES + HOOK_FILES, ids=lambda p: p.name)
 def test_ascii_only(path):
     """Every byte is ASCII: Windows' cp1252 console crashes on printing anything else."""
-    bad = [i for i, line in enumerate(path.read_bytes().splitlines(), 1)
-           if any(b > 127 for b in line)]
-    assert bad == [], f"{path.name}: non-ASCII on lines {bad}"
+    assert source.non_ascii(str(ROOT), [str(path)]) == ([], 1)
 
 
 @pytest.mark.parametrize("path", HOOK_FILES, ids=lambda p: p.name)
@@ -42,22 +45,8 @@ def test_hooks_are_lf(path):
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: p.name)
 def test_every_definition_has_a_docstring(path):
     """Modules, classes and functions all say what they are for."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    missing = [n.name for n in ast.walk(tree)
-               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-               and not ast.get_docstring(n)]
-    assert ast.get_docstring(tree), f"{path.name} has no module docstring"
-    assert missing == []
-
-
-def _imports(node):
-    """Top-level module names imported by `node`'s statements (relative imports excluded)."""
-    for n in ast.walk(node):
-        if isinstance(n, ast.Import):
-            for a in n.names:
-                yield a.name.split(".")[0], n
-        elif isinstance(n, ast.ImportFrom) and n.level == 0 and n.module:
-            yield n.module.split(".")[0], n
+    bad, n = source.docstrings(str(ROOT), [str(path)])
+    assert bad == [] and n >= 1
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: p.name)
@@ -66,19 +55,39 @@ def test_no_dependency_at_import(path):
 
     That is what lets the package declare no dependencies and never move a pin.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    top = [name for stmt in tree.body for name, _ in _imports(stmt)
-           if not isinstance(stmt, (ast.FunctionDef, ast.ClassDef))]
-    assert [m for m in top if m not in STDLIB] == []
-    everything = {name for name, _ in _imports(tree)}
-    assert everything - STDLIB - LAZY == set()
+    assert source.imports(str(ROOT), [str(path)], lazy=LAZY)[0] == []
+
+
+def test_the_import_rule_read_imports():
+    """The package as a whole has imports to check, including the lazy ones."""
+    assert source.imports(str(ROOT), [str(p) for p in SOURCES])[1] > 20
+    assert source.imports(str(ROOT), [str(p) for p in SOURCES])[0] != []
+
+
+def test_docs_hold_together():
+    """README, CHANGELOG and CLAUDE.md: links resolve, structure is sound, no dashes."""
+    for check in (docs.links, docs.structure, docs.dashes):
+        assert check(str(ROOT), DOCS)[0] == []
+    assert docs.structure(str(ROOT), DOCS)[1] == len(DOCS)
+
+
+def test_printed_strings_are_ascii():
+    """Belt and braces under test_ascii_only: what the CLI prints is ASCII."""
+    bad, n = source.printed_non_ascii(str(ROOT), [str(p) for p in SOURCES])
+    assert bad == [] and n > 0
+
+
+def test_version_is_written_once():
+    """pyproject reads `samebytes.__version__`; no second copy to forget."""
+    assert source.version_written_once(str(ROOT), "samebytes") == ([], 1)
 
 
 def test_imports_without_numpy_or_pandas():
     """A fresh interpreter imports every module with numpy and pandas blocked."""
     code = ("import sys; sys.modules['numpy'] = None; sys.modules['pandas'] = None\n"
             "import samebytes, samebytes.tree, samebytes.parity, samebytes.frames, "
-            "samebytes.hooks, samebytes.provenance, samebytes.__main__\nprint('ok')")
+            "samebytes.hooks, samebytes.provenance, samebytes.docs, samebytes.source, "
+            "samebytes.__main__\nprint('ok')")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                        cwd=str(PKG.parent))
     assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
