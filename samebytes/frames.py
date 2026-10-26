@@ -87,7 +87,7 @@ def column_diff(a, b, drop: Sequence[str] = ()) -> Tuple[int, int, List[str]]:
     Float columns are compared exactly, NaN equal to NaN; every other dtype
     (object, pandas 3's `str`, bool, int) goes through `blanks`.
     """
-    shared = [c for c in a.columns if c in b.columns and c not in drop]
+    shared, _, _ = shared_columns(a, b, drop)
     differing = []
     for c in shared:
         x, y = a[c], b[c]
@@ -102,6 +102,46 @@ def column_diff(a, b, drop: Sequence[str] = ()) -> Tuple[int, int, List[str]]:
         if not same:
             differing.append(c)
     return len(shared) - len(differing), len(shared), differing
+
+
+def shared_columns(a, b, drop: Sequence[str] = ()) -> Tuple[List[str], List[str], List[str]]:
+    """(shared, only in a, only in b), provenance (`drop`) left out of all three.
+
+    `shared` and `only_a` are in A's column order, `only_b` in B's.
+    """
+    shared = [c for c in a.columns if c in b.columns and c not in drop]
+    only_a = [c for c in a.columns if c not in b.columns and c not in drop]
+    only_b = [c for c in b.columns if c not in a.columns and c not in drop]
+    return shared, only_a, only_b
+
+
+def shared_hash(a, b, drop: Sequence[str] = (), width: int = 16) -> Tuple[str, str, List[str]]:
+    """(hash of A, hash of B, the columns hashed) over the columns both carry.
+
+    A release that ADDS a column cannot be checked by hashing the whole frame
+    against the build before it: the frame is a column wider by construction,
+    so the hash is certain to differ and says nothing.  economicspace once
+    reported all four cells as DIFFER on a configuration later proved identical
+    on 142 of 142 shared columns.  Hash the shared set and NAME it, which is why
+    the column list is returned, not just the two hashes.
+
+    Both frames are hashed in A's column order.  The rule elsewhere is that
+    column order is never touched, and that rule is about matching hashes
+    already committed; no committed hash is ever a shared hash, so the only
+    requirement here is that both sides use the same order.  When the shared
+    columns are in the same relative order in both frames (a column inserted
+    or appended), this is each frame's own order.
+
+    The hash is over what each frame HOLDS.  A frame read back from a CSV holds
+    what the reader made of it, so hand this the frames in memory when you have
+    them.  Before trusting a re-read file, check that
+    `frame_hash(read_exact(f), drop)` reproduces the hash the file was written
+    under.  A file that re-reads exactly gives a shared hash equal to one taken
+    in memory.
+    """
+    shared, _, _ = shared_columns(a, b, drop)
+    return (frame_hash(a[shared], width=width), frame_hash(b[shared], width=width),
+            shared)
 
 
 def blanks(s) -> list:
