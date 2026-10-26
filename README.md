@@ -29,7 +29,8 @@ permanently "modified" and makes `git merge --ff-only` refuse.
 
 And the house rules the repositories it serves had each written for
 themselves: **`docs`** (do the links, anchors and markdown structure still
-hold, and are the dashes gone) and **`source`** (a docstring on every
+hold, are the dashes gone, does a rules file quote none of its README's
+measurements, and did a reorganisation drop no number) and **`source`** (a docstring on every
 definition, ASCII where it is printed, only the imports a package declares, a
 silent import, one version). Five copies of each had drifted apart; this is the
 one copy.
