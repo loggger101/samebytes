@@ -12,14 +12,15 @@ SOURCES = sorted(PKG.glob("*.py"))
 HOOK_FILES = sorted((PKG / "hooks").iterdir())
 STDLIB = set(getattr(sys, "stdlib_module_names", ())) or {
     "argparse", "hashlib", "json", "math", "os", "platform", "struct", "subprocess",
-    "sys", "typing", "__future__", "multiprocessing", "io"}
+    "sys", "typing", "__future__", "multiprocessing", "io", "re", "importlib"}
 LAZY = {"numpy", "pandas"}
 
 
 def test_sources_found():
     """The rules below read real files, not an empty glob."""
     assert {p.name for p in SOURCES} >= {"__init__.py", "__main__.py", "tree.py",
-                                         "parity.py", "frames.py", "hooks.py"}
+                                         "parity.py", "frames.py", "hooks.py",
+                                         "provenance.py"}
     assert {p.name for p in HOOK_FILES} == {"drive-restat.sh", "post-checkout",
                                             "post-merge", "post-rewrite"}
 
@@ -77,7 +78,7 @@ def test_imports_without_numpy_or_pandas():
     """A fresh interpreter imports every module with numpy and pandas blocked."""
     code = ("import sys; sys.modules['numpy'] = None; sys.modules['pandas'] = None\n"
             "import samebytes, samebytes.tree, samebytes.parity, samebytes.frames, "
-            "samebytes.hooks, samebytes.__main__\nprint('ok')")
+            "samebytes.hooks, samebytes.provenance, samebytes.__main__\nprint('ok')")
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                        cwd=str(PKG.parent))
     assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
