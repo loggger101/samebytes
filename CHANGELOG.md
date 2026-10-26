@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.4.0 (2026-10-26)
+
+Two more docs checks, the last of economicspace's `verify_docs.py` that need
+no project knowledge. Nothing v0.3.0 printed, hashed, probed or installed
+changes.
+
+- **`docs.pairs(root, answers, rules, register_header=None)`**: no line of the
+  rules file shares three distinctive numbers with a line of an answer file,
+  unless a register table (the rows under a header line equal to
+  `register_header`) lists them. The answers are not paired with each other.
+  One finding per set of shared numbers, naming both lines; `checked` counts
+  every pair. Moved from economicspace's check 12.
+- **`docs.transfer(root, before, after)`**: every distinctive number in
+  `before` still appears somewhere in the `after` files. The audit for a
+  reorganisation, where a line diff cannot tell a dropped measurement from a
+  reflow. Findings are the lost number and its source line, sorted;
+  `checked` counts the numbers. Moved from economicspace's check 10.
+- **`docs.figures(line)`**, the numbers `pairs` reads, and the four patterns
+  `PAIR_NUMBER`, `PAIR_YEAR`, `TRANSFER_NUMBER` and `TRANSFER_YEAR`, moved
+  verbatim. The two checks count "distinctive" differently, as they did
+  where they came from. A known miss is carried, not fixed: a comma straight
+  after a thousands figure stays on `pairs`' token.
+
+Proved: 6 new tests, 126 in all. 12 defects were planted in a copy of the new
+code (versions, link targets and years not stripped, register rows read as a
+side, the register ignored, a two-number threshold, no dedupe, a missing file
+skipped by either check, only the first `after` file read, findings unsorted)
+and each failed its test. On economicspace, `transfer` printed byte-identical
+output to the old check on five audits (up to 2,751 numbers), and `pairs` found
+the same pairs and numbers on the live docs and on a copy with planted ones.
+
 ## v0.3.0 (2026-10-26)
 
 Two new modules, the house rules economicspace, spacecost, spacevalue,

@@ -15,8 +15,10 @@ loggger101/economicspace with its history.
 And the house rules a family of repositories shares, so that each stops
 keeping its own drifting copy:
 
-  docs     do the docs hold together (links, anchors, structure, dashes)?
+  docs     do the docs hold together (links, anchors, structure, dashes),
+           does the rules file copy no measurement, and did a
+           reorganisation lose no number?
   source   do the sources follow the rules (docstrings, ASCII, imports, a
            quiet import, one version)?
 """
-__version__ = "0.3.0"
+__version__ = "0.4.0"

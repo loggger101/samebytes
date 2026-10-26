@@ -17,6 +17,13 @@ reached the others. This is the one copy.
     dashes(root, files, prose_only=())
                              no em- or en-dash, and no line opening with the bare
                              comma a dash-removal pass leaves behind
+    pairs(root, answers, rules, register_header=None)
+                             no line of the rules file shares three distinctive
+                             numbers with a line of an answer file, unless a
+                             register table lists them
+    transfer(root, before, after)
+                             every distinctive number in `before` still appears
+                             somewhere in `after` (the audit for a reorganisation)
 
 Every check takes the repository root and paths relative to it (an absolute
 path also works), and returns `(findings, checked)`: a list of one-line
@@ -248,3 +255,131 @@ def dashes(root, files, prose_only=()):
                 bad.append("%s:%d  line opens with a bare comma  %s"
                            % (rel, i, line.strip()[:60]))
     return bad, n
+
+
+# What `pairs` counts as a distinctive number: a decimal, or a digit followed by
+# three or more digits and commas, never a year. Specific enough that two lines
+# sharing three of them are quoting one measurement rather than coinciding; a
+# line carrying `2`, `5` and `64` shares those with half a repository.
+# A comma straight after a thousands figure stays on its token (`1,555,667,`
+# in a list), so that copy does not match `1,555,667` elsewhere: a known miss,
+# kept because it is the rule check 12 was proved with, and a fix is a release.
+PAIR_NUMBER = re.compile(r"\d[\d,]*\.\d+|\d[\d,]{3,}")
+PAIR_YEAR = re.compile(r"(?:19|20)\d\d")
+
+# A dotted version (`1.21.0`, `v1.17.7`) is an identifier, not a measurement,
+# and a link like `[calc v1.12.0](versions.md#calc-v1120--transportation-v1100)`
+# made three "shared numbers" out of one anchor. Both are stripped BEFORE
+# tokenising, because an anchor's digits cannot be told from a real figure once
+# they are tokens.
+_SEMVER = re.compile(r"v?\d+\.\d+\.\d+")
+_LINK_TARGET = re.compile(r"\]\([^)]*\)")
+
+# What `transfer` counts as a distinctive number: a decimal, a properly
+# separated thousands figure, or a bare integer of four or more digits, never a
+# 20xx year. Not `PAIR_NUMBER`, and not unified with it: each is the rule its
+# check was proved with (economicspace's `verify_docs.py` checks 12 and 10), and
+# changing either changes what a consumer's audit reports.
+TRANSFER_NUMBER = re.compile(r"\d[\d,]*\.\d+|\d{1,3}(?:,\d{3})+|\b\d{4,}\b")
+TRANSFER_YEAR = re.compile(r"20\d\d")
+
+
+def figures(line):
+    """The distinctive numbers on one line, as `pairs` reads them: versions and link targets dropped."""
+    line = _LINK_TARGET.sub("]()", line)
+    line = _SEMVER.sub(" ", line)
+    return {m.group(0) for m in PAIR_NUMBER.finditer(line)
+            if not PAIR_YEAR.fullmatch(m.group(0))}
+
+
+def pairs(root, answers, rules, register_header=None):
+    """No line of `rules` quotes a measurement a line of one of `answers` quotes.
+
+    Two files that both claim to be CURRENT (a README that carries the numbers
+    and a rules file that should carry none) drift when they share a figure:
+    the next release moves one copy. A pair is two lines, one in `rules` and
+    one in an answer, sharing three or more `figures`. The answers are not
+    paired with each other: they are one answer split across files, and a
+    result quoting the model's own figure is not a copy.
+
+    A pair is allowed when its shared numbers are on the register: the rows of
+    a table, in any of the files read, whose header line is exactly
+    `register_header`. Register rows quote what they register by design, so
+    they are never one side of a pair. A finding names the two lines and the
+    shared numbers the register lacks, once per set of shared numbers.
+    `checked` counts every pair found, registered or not.
+    """
+    names = list(answers) + [rules]
+    bad = missing(root, names)
+    reg, lines = set(), {}
+    for name in names:
+        path, rel = _resolve(root, name)
+        if not os.path.exists(path):
+            continue
+        rows, in_register = [], False
+        for i, raw in enumerate(read(path).splitlines(), 1):
+            if register_header is not None and raw.strip() == register_header:
+                in_register = True
+                continue
+            if in_register:
+                # The table ends at the first line that is not one of its rows.
+                if raw.startswith("|"):
+                    reg |= figures(raw)
+                    continue
+                in_register = False
+            rows.append((i, figures(raw)))
+        lines[name] = (rel, rows)
+
+    n, seen = 0, set()
+    rrel, rrows = lines.get(rules, (None, ()))
+    for name in answers:
+        arel, arows = lines.get(name, (None, ()))
+        for ia, fa in arows:
+            if len(fa) < 3:
+                continue
+            for ib, fb in rrows:
+                shared = fa & fb
+                if len(shared) < 3:
+                    continue
+                n += 1
+                off = shared - reg
+                key = tuple(sorted(shared))
+                if not off or key in seen:
+                    continue
+                seen.add(key)
+                bad.append("%s:%d and %s:%d both quote %s, not on the register"
+                           % (arel, ia, rrel, ib, ", ".join(sorted(off))))
+    return bad, n
+
+
+def transfer(root, before, after):
+    """Every distinctive number in `before` still appears somewhere in `after`.
+
+    The check for a reorganisation: snapshot a document, split or rewrite it,
+    then ask whether any measurement was dropped rather than moved. A line diff
+    cannot answer that; economicspace's split of its history into versions.md
+    gave 302 differing lines and could not tell 26 dropped measurements from a
+    reflowed paragraph. A number survives if its text occurs anywhere in the
+    `after` files taken together. A finding is the lost number and the line it
+    came from, sorted by number. `checked` counts the distinct numbers in
+    `before`.
+    """
+    after = list(after)
+    bad = missing(root, [before] + after)
+    src = _resolve(root, before)[0]
+    if not os.path.exists(src):
+        return bad, 0
+    old = read(src)
+    hay = "\n".join(read(_resolve(root, p)[0]) for p in after
+                    if os.path.exists(_resolve(root, p)[0]))
+    seen = {}
+    for m in TRANSFER_NUMBER.finditer(old):
+        tok = m.group(0)
+        if tok in seen or TRANSFER_YEAR.fullmatch(tok):
+            continue
+        a = old.rfind("\n", 0, m.start()) + 1
+        b = old.find("\n", m.end())
+        seen[tok] = old[a:b if b > 0 else None].strip()
+    lost = sorted((t, c) for t, c in seen.items() if t not in hay)
+    bad += ["%-14s | %s" % (t, c[:110]) for t, c in lost]
+    return bad, len(seen)

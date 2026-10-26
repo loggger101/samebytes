@@ -145,3 +145,72 @@ def test_structure_no_h1(tmp_path):
     """A doc with no title at all is as wrong as one with two."""
     write(tmp_path, "N.md", "## Only a section\n")
     assert docs.structure(str(tmp_path), ["N.md"])[0] == ["N.md: 0 h1 headings, want exactly 1"]
+
+
+def test_figures_drop_versions_links_years_and_small_numbers():
+    """Decimals and thousands count; versions, link targets, years and short integers do not."""
+    line = ("calc v1.21.0 [notes](v.md#calc-v1120--x-v1100) in 2026: "
+            "12.5 s, 1,555,667 rows, 64 cells, 1999 and 4096")
+    assert docs.figures(line) == {"12.5", "1,555,667", "4096"}
+
+
+def test_pairs_clean(tmp_path):
+    """Answers may share with each other; the rules file may share two numbers, or registered ones."""
+    write(tmp_path, "README.md", "# R\nTook 12.5 s over 1,555,667 rows at 0.73.\n")
+    write(tmp_path, "MODEL.md", "# M\nSame 12.5 s, 1,555,667 rows, 0.73.\n")
+    write(tmp_path, "CLAUDE.md", """
+        # C
+        Only 12.5 and 0.73 here.
+        Registered: 3.46 and 18.5 and 12.1.
+
+        | the shared measurement | where |
+        |---|---|
+        | 3.46, 18.5, 12.1 | README |
+    """)
+    write(tmp_path, "OTHER.md", "# O\nCrossing at 3.46 AU, 18.5 against 12.1 km/s.\n")
+    bad, n = docs.pairs(str(tmp_path), ["README.md", "MODEL.md", "OTHER.md"], "CLAUDE.md",
+                        register_header="| the shared measurement | where |")
+    assert bad == [] and n == 1
+
+
+def test_pairs_planted(tmp_path):
+    """An unregistered pair is named once per number set, and a listed file not on disk is a finding."""
+    write(tmp_path, "README.md", "# R\nTook 12.5 s over 1,555,667 rows at 0.73.\nAgain 12.5 and 1,555,667 and 0.73.\n")
+    write(tmp_path, "CLAUDE.md", "# C\nA rule quoting 0.73 and 12.5 and 1,555,667.\n")
+    bad, n = docs.pairs(str(tmp_path), ["README.md", "GHOST.md"], "CLAUDE.md")
+    assert n == 2
+    assert bad == ["GHOST.md is listed and is not on disk",
+                   "README.md:2 and CLAUDE.md:2 both quote 0.73, 1,555,667, 12.5, "
+                   "not on the register"]
+
+
+def test_pairs_register_rows_are_not_a_side(tmp_path):
+    """A register row quotes what it registers; it is never itself one side of a pair."""
+    write(tmp_path, "README.md", "# R\n1.25 and 2.5 and 3.75 measured.\n")
+    write(tmp_path, "CLAUDE.md", "# C\n| reg |\n|---|\n| 1.25 2.5 3.75 |\n")
+    bad, n = docs.pairs(str(tmp_path), ["README.md"], "CLAUDE.md", register_header="| reg |")
+    assert bad == [] and n == 0
+
+
+def test_transfer_clean(tmp_path):
+    """A number that moved to any of the new files survives; years and short integers are not tracked."""
+    write(tmp_path, "OLD.md", "# Old\nIt took 12.5 s and 1,555,667 rows in 2026, 64 cells, 4096 B.\n")
+    write(tmp_path, "A.md", "# A\n12.5 s\n")
+    write(tmp_path, "B.md", "# B\n1,555,667 rows, 4096 B\n")
+    bad, n = docs.transfer(str(tmp_path), "OLD.md", ["A.md", "B.md"])
+    assert bad == [] and n == 3
+
+
+def test_transfer_planted(tmp_path):
+    """A dropped number is named with its source line, sorted; a missing file is a finding, never a skip."""
+    write(tmp_path, "OLD.md", "# Old\nAnd 1,555,667 rows.\nIt took 12.5 s.\nThen 0.25 left.\n"
+                              "Kept 0.73.\n")
+    write(tmp_path, "NEW.md", "# New\nKept 0.73.\n")
+    bad, n = docs.transfer(str(tmp_path), "OLD.md", ["NEW.md", "GONE.md"])
+    assert n == 4
+    assert bad == ["GONE.md is listed and is not on disk",
+                   "0.25           | Then 0.25 left.",
+                   "1,555,667      | And 1,555,667 rows.",
+                   "12.5           | It took 12.5 s."]
+    assert docs.transfer(str(tmp_path), "NOPE.md", ["NEW.md"]) == (
+        ["NOPE.md is listed and is not on disk"], 0)

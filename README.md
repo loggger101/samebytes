@@ -168,7 +168,10 @@ clean, and how many things it read, because a check that read nothing passes.
 A listed file that is not on disk is a finding. Also: `docs.slugs(text)`,
 `docs.structure(..., one_h1=False)` for a history divided into parts,
 `docs.dashes(root, files, prose_only=[...])` for sources whose string
-literals are data, `source.non_ascii`, `source.calls(root, files, ["print"])`,
+literals are data, `docs.pairs(root, answers, rules, register_header=...)`
+for a rules file that must quote no measurement its README does,
+`docs.transfer(root, before, after)` to show a reorganisation dropped no
+number, `source.non_ascii`, `source.calls(root, files, ["print"])`,
 `source.is_stdlib` and `source.requirements_match`.
 
 ## Why it looks the way it does
