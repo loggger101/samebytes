@@ -121,3 +121,41 @@ def test_different_lengths_differ():
     a = pd.DataFrame({"x": [1.0, 2.0]})
     b = pd.DataFrame({"x": [1.0]})
     assert frames.column_diff(a, b) == (0, 1, ["x"])
+
+
+def test_shared_hash_sees_through_an_added_column():
+    """A release that adds a column: the whole-frame hash must differ, the shared hash must not."""
+    a, b = _frame(), _frame()
+    b.insert(2, "new_term", [0.5, 0.25, 0.125])
+    assert frames.frame_hash(a, PROV) != frames.frame_hash(b, PROV)
+    ha, hb, cols = frames.shared_hash(a, b, PROV)
+    assert ha == hb
+    assert cols == ["name", "cost", "mix"]
+    assert frames.shared_columns(a, b, PROV) == (["name", "cost", "mix"], [], ["new_term"])
+
+
+def test_shared_hash_still_sees_a_moved_value():
+    """One ULP in a shared column is a difference whatever else was added."""
+    a, b = _frame(), _frame()
+    b["new_term"] = 1.0
+    b.loc[1, "cost"] = np.nextafter(b.loc[1, "cost"], np.inf)
+    ha, hb, _ = frames.shared_hash(a, b, PROV)
+    assert ha != hb
+
+
+def test_shared_hash_uses_one_order_for_both():
+    """B's columns in another order hash in A's order, so the same values match."""
+    a = _frame()
+    b = a[list(reversed(a.columns))].copy()
+    ha, hb, cols = frames.shared_hash(a, b, PROV)
+    assert ha == hb and cols == ["name", "cost", "mix"]
+
+
+def test_shared_hash_of_an_exact_reread_equals_memory():
+    """A file that re-reads exactly gives the shared hash the frame in memory gives."""
+    a = _frame()
+    back = frames.read_exact(io.StringIO(frames.canonical_csv(a)))
+    assert frames.frame_hash(back, PROV) == frames.frame_hash(a, PROV)
+    back["extra"] = 1
+    ha, hb, _ = frames.shared_hash(a, back, PROV)
+    assert ha == hb

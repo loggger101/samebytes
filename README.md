@@ -20,9 +20,12 @@ without anything raising, and a check for each:
   rules that stop a correct comparison from reporting failures that do not
   exist (below).
 
-and **`hooks`**, a dependency-free sh git hook that repairs git's stat cache
-after a synced folder reports a placeholder file size, which otherwise leaves
-the tree permanently "modified" and makes `git merge --ff-only` refuse.
+plus **`provenance`**, which writes down what produced a run (the commit,
+which tracked files differed from it, the interpreter and package versions)
+when it happens, because nothing can work it out afterwards; and **`hooks`**,
+a dependency-free sh git hook that repairs git's stat cache after a synced
+folder reports a placeholder file size, which otherwise leaves the tree
+permanently "modified" and makes `git merge --ff-only` refuse.
 
 Python 3.9 or later. **No dependencies**: numpy and pandas are imported only by
 the functions that need them, so installing samebytes can never move a version
@@ -35,7 +38,7 @@ repository carries the history of the files it came from.
 ## Install
 
 ```bash
-pip install "samebytes @ git+https://github.com/loggger101/samebytes@v0.1.0"
+pip install "samebytes @ git+https://github.com/loggger101/samebytes@v0.2.0"
 ```
 
 ## Use
@@ -70,13 +73,41 @@ same, compared, differing = frames.column_diff(df, old, drop=PROV)
 Print both. When they disagree the hash is right and the comparator is
 broken.
 
+When one run carries a column the other does not (a release that adds an
+output), the whole-frame hash differs by construction. Hash the columns both
+carry, and name them:
+
+```python
+ha, hb, cols = frames.shared_hash(df, old, drop=PROV)  # both in df's column order
+shared, only_new, only_old = frames.shared_columns(df, old, drop=PROV)
+```
+
+**Recording what produced a run**, at the time:
+
+```python
+from samebytes import provenance
+
+meta = {"git": provenance.git_state(REPO, paths=["src"]),  # sha, branch, dirty
+        "environment": provenance.environment()}          # python, host, numpy, pandas, pyarrow
+```
+
+`dirty` lists the tracked files under `paths` whose content differs from HEAD
+(`git diff`, never `git status`). It is `None` when git cannot answer and `[]`
+when it answers "clean"; a package that is not installed is `None`.
+
 **Host parity**:
 
 ```bash
 python -m samebytes parity --record      # on the reference host; commit the file
 python -m samebytes parity               # on another host: 0 match, 1 differ, 2 no reference
 python -m samebytes parity --reference path/to/platform_reference.json
+python -m samebytes parity --lock requirements-lock.txt   # also each installed package vs its pin
 ```
+
+`--lock` (repeatable) compares every `name==version` line of a file of exact
+pins with the installed distribution. Any other line (a range, a URL, an
+environment marker) is printed as `NOT CHECKED` and fails the lock check rather
+than being skipped quietly.
 
 A wrapper passes its own reference path and the phrases its advice prints:
 `parity.main(reference=..., hints={"rebaseline": ..., ...})`; see `HINTS`.
@@ -133,6 +164,12 @@ Each of these was a real failure, and each has a test that plants it:
   119898.18458829961. For comparisons only: a pipeline that reads its own
   inputs with the default parser is deterministic, and switching it would move
   every number.
+- **A release that adds a column is checked on the shared columns, named.**
+  Hashing the whole frame against the build before it reported all four cells
+  as different on a configuration identical on 142 of 142 shared columns.
+- **Provenance is written at capture time, and "could not tell" is never
+  "clean".** A lock file named one machine's environment for seven weeks while
+  every baseline was taken on the other, and nothing recorded which.
 - **A pandas version is never reported as a defect.** `str_dtype` reads
   `object` on pandas 2 and `str` on 3; it gets its own bucket.
 - **The probe grids are pinned**: a reference is only comparable with the

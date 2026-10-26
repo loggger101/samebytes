@@ -1,8 +1,44 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 (2026-10-26)
 
-Documentation only; no code, printed output, probe or hook changed.
+Three additions. Nothing that v0.1.0 printed, hashed, probed or installed
+changes: every v0.1.0 test passes unchanged, the probe set and its grids are
+the same, and `parity` without `--lock` prints byte-identical output.
+
+- **`frames.shared_hash(a, b, drop)` and `frames.shared_columns`.** A release
+  that adds an output column cannot be checked by hashing the whole frame
+  against the build before it. economicspace once reported four cells as
+  different on a configuration identical on 142 of 142 shared columns.
+  `shared_hash` hashes both frames over the columns both carry, in A's order,
+  and returns the column list so the set can be named. `column_diff` now takes
+  its shared set from `shared_columns`, with the same result.
+- **`provenance`**, moved from economicspace's `verify.py`:
+  - `git_state(repo, paths)` gives the commit, the branch, and the tracked
+    files under `paths` whose content differs from HEAD (`git diff`, never
+    `git status`).
+  - `environment(packages)` gives the interpreter, system, machine, host and
+    each package's version.
+  - "Could not tell" is `None` and never reads as clean.
+  - A module already imported reports its own `__version__`; otherwise
+    `importlib.metadata` answers without importing the package.
+- **`parity --lock FILE`** (repeatable) compares each installed distribution
+  with its `name==version` pin.
+  - Names are normalised as PEP 503 does, and versions are compared as exact
+    strings.
+  - Every other line (a range, a URL, `-r`, an environment marker) is printed
+    `NOT CHECKED` and fails the lock check.
+  - The exit code is the probes' when they did not all match, else the lock's.
+  - The lock is checked even when the reference is missing (exit 2).
+  - `--lock` with `--record` is an argument error.
+
+Proved: 22 new tests, 90 in all. Twelve defects were planted in a copy (whole B
+hashed, provenance kept, B's own order, `git status` for dirty, no git read as
+clean, metadata ignoring the imported module, unreadable lock lines dropped or
+passed, names not normalised, tab comments, the lock skipped without a
+reference, the lock's exit code ignored), and each failed its test, as do v0.1.0's 16.
+
+Also in this release, documentation only:
 
 - README: a Develop section (running the tests, what they need, how a release
   is made), a Licence section, and the `--no-config` / `--require-config`

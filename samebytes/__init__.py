@@ -7,7 +7,9 @@ Three levels of the one question, each a module:
   parity   can this host reproduce the committed numbers bit for bit?
   frames   are these two runs (pandas frames or CSVs) the same?
 
-plus `hooks`, which installs the sh hook that repairs git's stat cache in a
-synced folder.  Split out of loggger101/economicspace with its history.
+plus `provenance`, which records what produced a run (the commit and the
+environment) when it happens, and `hooks`, which installs the sh hook that
+repairs git's stat cache in a synced folder.  Split out of
+loggger101/economicspace with its history.
 """
-__version__ = "0.1.0"
+__version__ = "0.2.0"
