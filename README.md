@@ -88,6 +88,10 @@ python -m samebytes hooks install [REPO]  # copies into REPO/.githooks, sets cor
 python -m samebytes hooks check [REPO]    # 0 when every copy is the packaged one
 ```
 
+`install --no-config` copies the files without setting `core.hooksPath`.
+`check --require-config` also fails when `core.hooksPath` is not `.githooks`;
+leave it off in CI, where a fresh clone has not opted in.
+
 Then pin the hooks to LF and commit them executable:
 
 ```
@@ -140,3 +144,27 @@ Each of these was a real failure, and each has a test that plants it:
   a missing executable bit, each of which makes a copy silently useless.
 - **The hook re-stats only entries whose content already matches the index**,
   so it cannot stage, hide or discard a real edit.
+
+## Develop
+
+```bash
+pip install -e ".[test]"
+python -m pytest
+```
+
+The tests build throwaway git repositories, so git must be on PATH; the one
+that runs the hook also needs an sh (Git for Windows' counts) and skips
+without one. `tests/test_rules.py` holds the package to its own rules: the
+standard library only at import, ASCII only, a docstring on every definition.
+CI runs the suite on Windows, Linux and macOS at Python 3.9, 3.12 and 3.14,
+then again against the built wheel.
+
+A release bumps `samebytes.__version__` (the one place the version is written;
+`pyproject.toml` reads it), adds a [CHANGELOG](CHANGELOG.md) entry, and tags
+`vX.Y.Z`. Consumers pin the tag. A changed parity probe or grid is a new probe
+key, never an edit, and a changed hook means every consumer runs
+`hooks install` again.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

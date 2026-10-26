@@ -31,9 +31,9 @@ from typing import Iterable, List, Sequence, Tuple
 def comparable(df, drop: Sequence[str] = ()):
     """The frame with every provenance column (`drop`) removed.
 
-    Column ORDER is left alone deliberately.  Sorting them would be tidier and
-    would silently make every hash printed from it incomparable with the ones
-    already committed -- which is the whole point of printing one.
+    Column ORDER is left alone.  Sorting the columns would be tidier, and every
+    hash printed from it would silently stop matching the ones already
+    committed, which are what a printed hash is compared against.
     """
     return df[[c for c in df.columns if c not in drop]]
 
@@ -73,9 +73,9 @@ def frame_hash(df, drop: Sequence[str] = (), width: int = 16) -> str:
 def column_diff(a, b, drop: Sequence[str] = ()) -> Tuple[int, int, List[str]]:
     """(identical, compared, differing) over the shared columns not in `drop`.
 
-    Compared POSITIONALLY, via .to_numpy(), and that is not a detail.  A frame
-    returned SORTED by some objective carries a scrambled index while the same
-    frame re-read from CSV carries a fresh RangeIndex.  Comparing the two Series
+    Compared POSITIONALLY, via .to_numpy().  A frame returned SORTED by some
+    objective carries a scrambled index while the same frame re-read from CSV
+    carries a fresh RangeIndex.  Comparing the two Series
     directly makes pandas align on the index LABEL, so nearly every float
     column reports as differing while the file hashes identical.  The hash said
     MATCH and the column diff said DIFFER, and the hash was right.

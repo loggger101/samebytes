@@ -5,8 +5,8 @@ Written for economicspace (as `platform_check.py`), an asteroid-mining
 pipeline whose code is portable: every path goes through `os.path.join` and
 its worker pool asks for `spawn` explicitly.
 
-What does NOT travel is BIT-IDENTITY, and that is the whole currency of that
-project: every release is argued from a cell hash, and a 20-cell campaign is
+What does NOT travel is BIT-IDENTITY, and that project depends on it: every
+release is argued from a cell hash, and a 20-cell campaign is
 26 hours of work whose value is that it can be compared to one.  Two things
 can break that comparison without anything being wrong with the model, and
 both are silent:
@@ -14,17 +14,18 @@ both are silent:
   1. `pandas.to_csv` defaults `lineterminator` to `os.linesep`.  A catalog
      written on Linux is LF where every committed hash was taken over CRLF, so
      a byte-perfect run reports DIFFER on every cell.  This is FIXED at source
-     (the terminator is pinned in every writer: calc, mineral_value, spacecost's
-     `build`, and `verify.py`); the
-     check here is the regression test for that fix.
+     (the terminator is pinned in every writer: calc, mineral_value,
+     spacecost's `build`, and `verify.py`); the check here is the regression
+     test for that fix.
 
   2. `math.exp`, `math.log` and `math.cos` are the platform libm, and
      `numpy` chooses SIMD kernels per architecture.  None of them is required
      by IEEE 754 to be correctly rounded, so glibc on aarch64 and the Windows
      UCRT on x86-64 may disagree in the last bit.  The rocket equation is
      `math.exp(dv / ve)` and the mass every ranking runs on comes out of
-     `np.power(10.0, -H / 5.0)`, so a one-ULP difference there is not academic.
-     This one CANNOT be fixed, only measured, which is what this file is for.
+     `np.power(10.0, -H / 5.0)`, so a one-ULP difference there reaches the
+     ranking.  This one CANNOT be fixed, only measured, which is what this
+     file is for.
 
 The probe ARGUMENT RANGES are that model's own (see each probe), and they are
 kept exactly as recorded: a reference file is only comparable with the probe
@@ -37,10 +38,9 @@ Usage:
 
 `--record` writes the reference (`platform_reference.json` in the current
 directory unless `--reference` names another), which the project commits.
-The default mode recomputes every probe and diffs it against that file.  It
-is deliberately a baseline/check shape, and for the usual reason: a reference
-value that is typed into prose is a number waiting to rot, so this one is
-derived on both sides and never written down by hand.
+The default mode recomputes every probe and diffs it against that file.  A
+reference value typed into prose goes stale, so this one is computed on both
+sides and never written down by hand.
 
 A project that wraps this (economicspace's `platform_check.py` does) passes
 its reference path and its own commands for the printed hints; see `HINTS`.
@@ -118,7 +118,7 @@ def _grid(lo: float, hi: float, n: int):
 def probe_libm() -> dict:
     """The stdlib transcendentals the mass cascade actually calls.
 
-    Argument ranges are the model's own, not decorative:
+    Argument ranges are the model's own:
 
       exp   `math.exp(dv / ve)` in the rocket equation.  dv runs to ~20 km/s
             and effective exhaust velocity from ~3 km/s (chemical) to ~50 km/s
@@ -275,7 +275,7 @@ def host_facts() -> dict:
 
     Deliberately outside the probe set: an aarch64 Linux box is SUPPOSED to
     differ here, and failing on it would make the check useless for the job it
-    exists to do.  What gets compared is the arithmetic, not the badge.
+    exists to do.
     """
     try:
         import numpy as np
@@ -349,14 +349,13 @@ def report(now: dict, ref: dict, hints: dict = None) -> int:
                         differently.  See `probe_pandas_dtypes`.
       host.*            expected and informational.
 
-    The pandas bucket was split out of the defect bucket on 2026-09-08, and
-    the reason is worth keeping: `str_dtype` is `object` on pandas 2.x and
-    `str` on 3.0, so a host on the other major version was being reported
-    under a banner reading "BROKEN: these are defects", which is the one
-    thing it is not.  A checker that cries defect at a library version is the
-    "a broken checker looks exactly like a broken release" shape
-    economicspace's LESSONS.md catalogues, and this one fired on the reference
-    host itself.
+    The pandas bucket was split out of the defect bucket on 2026-09-08:
+    `str_dtype` is `object` on pandas 2.x and `str` on 3.0, so a host on the
+    other major version was being reported under a banner reading "BROKEN:
+    these are defects", which is the one thing it is not.  A checker that cries
+    defect at a library version is the "a broken checker looks exactly like a
+    broken release" shape economicspace's LESSONS.md catalogues, and this one
+    fired on the reference host itself.
     """
     h = dict(HINTS, **(hints or {}))
     flat_now, flat_ref = _flatten(now), _flatten(ref)

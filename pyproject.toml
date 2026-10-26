@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "samebytes"
 dynamic = ["version"]
-description = "Are these the same bytes? Check a working tree against git's index, a host's arithmetic against a recorded reference, and two pandas runs against each other, without fooling yourself; plus a git hook that repairs the stat cache in a synced folder."
+description = "Are these the same bytes? Checks that a working tree holds what git's index says, that a host reproduces recorded float results bit for bit, and that two pandas runs match; plus a git hook that repairs git's stat cache in synced folders."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -15,7 +15,8 @@ license-files = ["LICENSE"]
 authors = [{ name = "Logan M Edwards" }]
 keywords = [
     "bit-identity", "reproducibility", "hash", "pandas", "csv", "git",
-    "onedrive", "google-drive", "synced-folder", "libm", "regression",
+    "git-hooks", "onedrive", "google-drive", "synced-folder", "libm",
+    "floating-point", "regression",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -41,6 +42,8 @@ test = ["pytest>=7.0", "numpy", "pandas"]
 
 [project.urls]
 Repository = "https://github.com/loggger101/samebytes"
+Changelog = "https://github.com/loggger101/samebytes/blob/main/CHANGELOG.md"
+Issues = "https://github.com/loggger101/samebytes/issues"
 
 [tool.setuptools]
 packages = ["samebytes"]

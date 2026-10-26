@@ -15,12 +15,12 @@ old bytes once and the current bytes afterwards. The sibling failure, observed
 in the same session, is a tracked file reading as ABSENT: two harnesses were
 invisible to one `verify_docs.py` run and visible to the next.
 
-WHY A CHECK IS POSSIBLE AT ALL, WHICH IS NOT OBVIOUS. `git status` said clean
-the whole time, so the obvious check looks useless. It is clean because git's
-stat cache trusts SIZE and MTIME and never re-reads content, the same cache
-whose other direction is the phantom-dirty tree that `hooks/drive-restat.sh`
-repairs. So git's opinion and the file's CONTENT are two independent readings,
-and the failure is exactly the case where they disagree:
+WHY A CHECK IS POSSIBLE AT ALL. `git status` said clean the whole time, so
+asking git looks useless. It is clean because git's stat cache trusts SIZE and
+MTIME and never re-reads content, the same cache whose other direction is the
+phantom-dirty tree that `hooks/drive-restat.sh` repairs. So git's opinion and
+the file's CONTENT are two independent readings, and the failure is exactly the
+case where they disagree:
 
     | content vs index | git status says | reading |
     |---|---|---|
@@ -35,35 +35,32 @@ mtime, and `git status --short` returns EMPTY while the content hash moves.
 
 HASH THROUGH `git hash-object`, NEVER sha1 OF THE RAW BYTES. economicspace's
 `.gitattributes` pins `*.py` to LF and `*.bat` to CRLF, and the index stores
-the normalised form,
-so raw bytes disagree with the index for every CRLF file by construction.
-`git hash-object` applies the same filters git would: measured, `run.bat`
-matches its index blob through `hash-object` and does NOT through
-`--no-filters`, which is what proves the filter is load-bearing rather than
-decorative.
+the normalised form, so raw bytes disagree with the index for every CRLF
+file by construction. `git hash-object` applies the same filters git would:
+measured, `run.bat` matches its index blob through `hash-object` and does
+NOT through `--no-filters`, so without the filter every CRLF file would be
+a finding.
 
-IT READS THE WHOLE TREE RATHER THAN A CURATED LIST, deliberately. The lesson
-economicspace learned the day before this file was written is that a check which
-reads one row of a table is a check on that row, and a hand-maintained file
-list is that same defect wearing different clothes. The whole tree hashes in
-well under a second, three git invocations regardless of count, so there is
-nothing to buy by narrowing it.
+IT READS THE WHOLE TREE RATHER THAN A CURATED LIST. The day before this file
+was written, economicspace found that a check which reads one row of a table
+is a check on that row, and a hand-maintained file list has the same defect.
+The whole tree hashes in well under a second, three git invocations
+regardless of count, so there is nothing to buy by narrowing it.
 
 AND READING IS ALSO THE CURE, so this is a prophylactic as well as a detector.
 Materialisation is what a read does anyway, so calling this first in a harness
 either catches the stale bytes or forces the mount to produce the current ones
 before the harness reads them itself.
 
-THE ONE GAP, STATED PRECISELY RATHER THAN PAPERED OVER: a harness's OWN source
-is compiled by Python before any code in it runs, so a stale import is already
-loaded by the time this executes. It is caught in practice because the mount
-served stale bytes for a whole PROCESS rather than for a single read, so the
-later re-read still sees them; it is not caught in principle, because a
-materialisation landing between the import and this call would hide it. Every
-file a harness reads AFTER this point is fully covered. Installed as a
-package, this module is read from site-packages rather than from the synced
-tree, so the checker's own bytes are no longer served by the mount it checks;
-the harness that calls it still is.
+THE ONE GAP: a harness's OWN source is compiled by Python before any code in it
+runs, so a stale import is already loaded by the time this executes. It is
+caught in practice because the mount served stale bytes for a whole PROCESS
+rather than for a single read, so the later re-read still sees them; it is not
+caught in principle, because a materialisation landing between the import and
+this call would hide it. Every file a harness reads AFTER this point is fully
+covered. Installed as a package, this module is read from site-packages rather
+than from the synced tree, so the checker's own bytes are no longer served by
+the mount it checks; the harness that calls it still is.
 
 THE REPOSITORY IS ALWAYS NAMED BY THE CALLER. As `tree_check.py` this file
 checked the directory it sat in; installed, that directory is site-packages,
