@@ -2,7 +2,7 @@
 """Command line.
 
     python -m samebytes tree [REPO]                     exit 0 match, 1 finding, 2 skipped
-    python -m samebytes parity [--record] [--reference FILE]
+    python -m samebytes parity [--record] [--reference FILE] [--lock FILE]...
                                                         exit 0 match, 1 differ, 2 no reference
     python -m samebytes hooks install [REPO] [--no-config]
     python -m samebytes hooks check [REPO] [--require-config]

@@ -35,6 +35,8 @@ Usage:
 
     python -m samebytes parity --record    # on the reference host, once
     python -m samebytes parity             # on the new host: compare and report
+    python -m samebytes parity --lock requirements-lock.txt
+                                           # ... and check the installed packages
 
 `--record` writes the reference (`platform_reference.json` in the current
 directory unless `--reference` names another), which the project commits.
@@ -45,7 +47,13 @@ sides and never written down by hand.
 A project that wraps this (economicspace's `platform_check.py` does) passes
 its reference path and its own commands for the printed hints; see `HINTS`.
 
-Exit codes: 0 all probes match, 1 a probe differs, 2 the reference is missing.
+`--lock FILE` also compares every installed distribution named in a file of
+exact pins (`name==version`) with its pin.  A probe that differs on a host
+running other versions of numpy or pandas is the packages' difference until
+the lock is installed; this says which.
+
+Exit codes: 0 all probes (and pins) match, 1 a probe or pin differs, 2 the
+reference is missing.
 """
 from __future__ import annotations
 
@@ -54,6 +62,7 @@ import json
 import math
 import os
 import platform
+import re
 import sys
 
 from .frames import float_hash
@@ -433,12 +442,94 @@ def report(now: dict, ref: dict, hints: dict = None) -> int:
     return 1
 
 
+# -----------------------------------------------------------------------------
+# THE LOCK FILE
+# -----------------------------------------------------------------------------
+_PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?==([^=\s;]+)$")
+
+
+def _normalise(name: str) -> str:
+    """A distribution name as PEP 503 compares it: lower case, runs of -_. as -."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def read_lock(path: str):
+    """(pins, unreadable) from a requirements file of exact pins.
+
+    `pins` is [(name, version)] for each `name==version` line (extras allowed,
+    an inline ` #` comment stripped).  `unreadable` is every other non-comment
+    line verbatim: a range, a URL, an `-r` include, or an environment marker,
+    which cannot be evaluated without a dependency this package does not take.
+    Those are reported as not checked, never skipped quietly.
+    """
+    pins, unreadable = [], []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = re.split(r"\s#", raw, maxsplit=1)[0].strip()
+            if not line or line.startswith("#"):
+                continue
+            m = _PIN.match(line)
+            if m:
+                pins.append((m.group(1), m.group(3)))
+            else:
+                unreadable.append(line)
+    return pins, unreadable
+
+
+def installed_versions() -> dict:
+    """{normalised name: version} for every distribution this interpreter sees.
+
+    Where two copies of one distribution are on the path, the first found wins,
+    as it does for an import.
+    """
+    from importlib import metadata
+    out = {}
+    for dist in metadata.distributions():
+        name = dist.metadata["Name"]
+        if name:
+            out.setdefault(_normalise(name), dist.version)
+    return out
+
+
+def lock_report(path: str, installed: dict = None) -> int:
+    """Print each pin of the lock file at `path` against what is installed.
+
+    0 when every pin matches and every line could be read; 1 otherwise.  The
+    probes say whether this host's ARITHMETIC matches the reference; this says
+    whether its PACKAGES are the ones the project pinned, which is the first
+    thing to fix when a probe differs.  Versions are compared as the exact
+    strings, the form `pip freeze` writes and a lock records.
+    """
+    pins, unreadable = read_lock(path)
+    have = installed_versions() if installed is None else installed
+    print("\n  LOCK  %s" % path)
+    print("    %-24s %-16s %-16s" % ("package", "pinned", "installed"))
+    bad = 0
+    for name, want in pins:
+        got = have.get(_normalise(name))
+        verdict = "match" if got == want else ("MISSING" if got is None else "DIFFER")
+        bad += verdict != "match"
+        print("    %-24s %-16s %-16s %s" % (name, want, got or "(absent)", verdict))
+    for line in unreadable:
+        print("    %-58s NOT CHECKED" % line)
+    if not bad and not unreadable:
+        print("\n  %d of %d pins match the installed versions." % (len(pins), len(pins)))
+        return 0
+    print("\n  *** %d of %d pins differ from the installed versions%s." % (
+        bad, len(pins),
+        ", and %d line(s) could not be checked" % len(unreadable) if unreadable else ""))
+    print("    Install the lock (pip install -r %s) before reading a probe" % path)
+    print("    difference as the host's.")
+    return 1
+
+
 def main(argv=None, reference: str = None, hints: dict = None) -> int:
-    """Record a reference, or check this host against one.
+    """Record a reference, or check this host against one (and lock files).
 
     `reference` is the file a wrapper owns; given, it is the default for
     `--reference`.  `hints` is passed to `report` and supplies the missing-
-    reference instruction.
+    reference instruction.  Each `--lock FILE` is checked after the probes; the
+    exit code is the probes' when they did not all match, else the locks'.
     """
     h = dict(HINTS, **(hints or {}))
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -446,7 +537,12 @@ def main(argv=None, reference: str = None, hints: dict = None) -> int:
                     help="write the reference file for this host")
     ap.add_argument("--reference", default=reference or DEFAULT_REFERENCE,
                     help="the reference file (default: %(default)s)")
+    ap.add_argument("--lock", action="append", default=[], metavar="FILE",
+                    help="also check the installed packages against this file "
+                         "of exact pins (repeatable)")
     args = ap.parse_args(argv)
+    if args.record and args.lock:
+        ap.error("--lock checks a host; it cannot be combined with --record")
     ref_path = args.reference
 
     print("=" * 72)
@@ -467,14 +563,19 @@ def main(argv=None, reference: str = None, hints: dict = None) -> int:
     if not os.path.exists(ref_path):
         print("\n  No reference file at %s" % ref_path)
         print("  Run:  %s" % h["record_missing"])
-        return 2
+        rc = 2
+    else:
+        with open(ref_path, encoding="utf-8") as f:
+            ref = json.load(f)
+        rc = report(now, ref, hints)
+        print("")
 
-    with open(ref_path, encoding="utf-8") as f:
-        ref = json.load(f)
-
-    rc = report(now, ref, hints)
-    print("")
-    return rc
+    lock_rc = 0
+    for path in args.lock:
+        lock_rc |= lock_report(path)
+    if args.lock:
+        print("")
+    return rc or lock_rc
 
 
 if __name__ == "__main__":

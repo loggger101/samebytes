@@ -112,3 +112,85 @@ def test_reference_file_is_lf_json(tmp_path, now):
     parity.main(["--record", "--reference", str(ref)])
     raw = ref.read_bytes()
     assert b"\r\n" not in raw and json.loads(raw)["csv"]["crlf"] is True
+
+
+LOCK = (
+    "# a comment\n"
+    "numpy==2.5.2\n"
+    "Python_Dateutil==2.9.0.post0   # inline comment\n"
+    "pandas[performance]==3.0.5\t# tab comment\n"
+    'pywin32==311; sys_platform == "win32"\n'
+    "requests>=2\n"
+    "-r other.txt\n"
+    "samebytes @ git+https://github.com/loggger101/samebytes@v0.1.0\n"
+)
+
+
+def _lock(tmp_path, text):
+    """Write a lock file and return its path."""
+    p = tmp_path / "lock.txt"
+    p.write_text(text)
+    return str(p)
+
+
+def test_read_lock_pins_and_unreadable(tmp_path):
+    """Exact pins are read (extras, comments, odd case); every other line is kept, verbatim."""
+    pins, unreadable = parity.read_lock(_lock(tmp_path, LOCK))
+    assert pins == [("numpy", "2.5.2"), ("Python_Dateutil", "2.9.0.post0"),
+                    ("pandas", "3.0.5")]
+    assert unreadable == ['pywin32==311; sys_platform == "win32"', "requests>=2",
+                          "-r other.txt",
+                          "samebytes @ git+https://github.com/loggger101/samebytes@v0.1.0"]
+
+
+def test_lock_all_match_is_0_and_names_normalise(tmp_path, capsys):
+    """python-dateutil installed matches a pin spelled Python_Dateutil."""
+    path = _lock(tmp_path, "numpy==2.5.2\nPython_Dateutil==2.9.0.post0\n")
+    rc = parity.lock_report(path, {"numpy": "2.5.2", "python-dateutil": "2.9.0.post0"})
+    assert rc == 0 and "2 of 2 pins match" in capsys.readouterr().out
+
+
+def test_lock_differ_and_missing_are_1(tmp_path, capsys):
+    """Another version is DIFFER, an absent package MISSING; both fail."""
+    path = _lock(tmp_path, "numpy==2.5.2\npandas==3.0.5\n")
+    rc = parity.lock_report(path, {"numpy": "2.2.6"})
+    out = capsys.readouterr().out
+    assert rc == 1 and "DIFFER" in out and "MISSING" in out and "2 of 2 pins differ" in out
+
+
+def test_lock_unreadable_line_is_never_a_pass(tmp_path, capsys):
+    """A line that cannot be checked fails the lock even when every pin matches."""
+    path = _lock(tmp_path, "numpy==2.5.2\nrequests>=2\n")
+    rc = parity.lock_report(path, {"numpy": "2.5.2", "requests": "2.34.2"})
+    out = capsys.readouterr().out
+    assert rc == 1 and "NOT CHECKED" in out and "could not be checked" in out
+
+
+def test_lock_reads_this_interpreter(tmp_path):
+    """Without an injected table, the installed versions are this interpreter's."""
+    path = _lock(tmp_path, "pytest==%s\n" % pytest.__version__)
+    assert parity.lock_report(path) == 0
+
+
+def test_lock_with_record_is_refused(tmp_path):
+    """--lock checks a host, so recording with it is an argument error."""
+    with pytest.raises(SystemExit) as e:
+        parity.main(["--record", "--lock", "x.txt", "--reference", str(tmp_path / "r.json")])
+    assert e.value.code == 2
+
+
+def test_lock_runs_even_without_a_reference(tmp_path, capsys):
+    """A missing reference still exits 2, and the lock is still checked and printed."""
+    path = _lock(tmp_path, "numpy==0.0.0\n")
+    rc = parity.main(["--reference", str(tmp_path / "none.json"), "--lock", path])
+    out = capsys.readouterr().out
+    assert rc == 2 and "LOCK" in out and "DIFFER" in out
+
+
+def test_probes_match_but_lock_differs_is_1(tmp_path, capsys, now):
+    """All probes matching does not hide a pin that differs."""
+    ref = tmp_path / "ref.json"
+    parity.main(["--record", "--reference", str(ref)])
+    path = _lock(tmp_path, "numpy==0.0.0\n")
+    assert parity.main(["--reference", str(ref), "--lock", path]) == 1
+    assert "ALL PROBES MATCH" in capsys.readouterr().out
