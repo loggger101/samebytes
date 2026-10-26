@@ -20,7 +20,12 @@ def test_same_length_change_git_cannot_see_is_found(repo):
 
     This is the synced-folder stale read reproduced on purpose: git's stat cache
     trusts size and mtime and never re-reads, so only a content hash sees it.
+    A local rewrite also moves ctime, which git compares by default (and to the
+    nanosecond on macOS); a sync mount's stale read does not, so the stat check
+    is narrowed to what the mount fools.
     """
+    git(repo, "config", "core.trustctime", "false")
+    git(repo, "config", "core.checkStat", "minimal")
     f = repo / "data.txt"
     f.write_bytes(b"0123456789\n")
     past = backdate(f)
@@ -78,6 +83,8 @@ def test_no_git_is_a_skip_not_a_pass(tmp_path, capsys):
 
 def test_main_exit_codes(repo):
     """0 when verified, 1 on a finding."""
+    git(repo, "config", "core.trustctime", "false")
+    git(repo, "config", "core.checkStat", "minimal")
     f = repo / "data.txt"
     f.write_bytes(b"aaaa\n")
     past = backdate(f)
