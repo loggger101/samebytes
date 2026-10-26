@@ -14,7 +14,7 @@ both are silent:
   1. `pandas.to_csv` defaults `lineterminator` to `os.linesep`.  A catalog
      written on Linux is LF where every committed hash was taken over CRLF, so
      a byte-perfect run reports DIFFER on every cell.  This is FIXED at source
-     (the terminator is pinned in every writer: calc, mineral_value,
+     (the terminator is pinned in every writer: calc, spacevalue's build,
      spacecost's `build`, and `verify.py`); the check here is the regression
      test for that fix.
 
