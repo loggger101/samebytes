@@ -27,6 +27,13 @@ a dependency-free sh git hook that repairs git's stat cache after a synced
 folder reports a placeholder file size, which otherwise leaves the tree
 permanently "modified" and makes `git merge --ff-only` refuse.
 
+And the house rules the repositories it serves had each written for
+themselves: **`docs`** (do the links, anchors and markdown structure still
+hold, and are the dashes gone) and **`source`** (a docstring on every
+definition, ASCII where it is printed, only the imports a package declares, a
+silent import, one version). Five copies of each had drifted apart; this is the
+one copy.
+
 Python 3.9 or later. **No dependencies**: numpy and pandas are imported only by
 the functions that need them, so installing samebytes can never move a version
 your project pins. CI runs Windows, Linux and macOS.
@@ -38,7 +45,7 @@ repository carries the history of the files it came from.
 ## Install
 
 ```bash
-pip install "samebytes @ git+https://github.com/loggger101/samebytes@v0.2.0"
+pip install "samebytes @ git+https://github.com/loggger101/samebytes@v0.3.0"
 ```
 
 ## Use
@@ -134,6 +141,36 @@ Then pin the hooks to LF and commit them executable:
 git add .gitattributes && git add --chmod=+x .githooks/*
 ```
 
+**House rules**, from a repository's own tests:
+
+```python
+from samebytes import docs, source
+
+ROOT = "."                                   # paths below are relative to it
+DOCS = ["README.md", "CHANGELOG.md"]
+SOURCES = ["mypkg/__init__.py", "mypkg/cli.py"]
+
+def test_docs():
+    for check in (docs.links, docs.structure, docs.dashes):
+        bad, checked = check(ROOT, DOCS)
+        assert bad == [] and checked > 0
+
+def test_sources():
+    assert source.docstrings(ROOT, SOURCES)[0] == []
+    assert source.printed_non_ascii(ROOT, SOURCES)[0] == []      # print(...) and say(...)
+    assert source.imports(ROOT, SOURCES, allowed=["psutil"], lazy=["numpy"])[0] == []
+    assert source.quiet_import(ROOT, "import mypkg")[0] == []    # no output, no file
+    assert source.version_written_once(ROOT, "mypkg")[0] == []
+```
+
+Every check returns `(findings, checked)`: one-line findings, empty when
+clean, and how many things it read, because a check that read nothing passes.
+A listed file that is not on disk is a finding. Also: `docs.slugs(text)`,
+`docs.structure(..., one_h1=False)` for a history divided into parts,
+`docs.dashes(root, files, prose_only=[...])` for sources whose string
+literals are data, `source.non_ascii`, `source.calls(root, files, ["print"])`,
+`source.is_stdlib` and `source.requirements_match`.
+
 ## Why it looks the way it does
 
 Each of these was a real failure, and each has a test that plants it:
@@ -181,6 +218,20 @@ Each of these was a real failure, and each has a test that plants it:
   a missing executable bit, each of which makes a copy silently useless.
 - **The hook re-stats only entries whose content already matches the index**,
   so it cannot stage, hide or discard a real edit.
+- **A link resolves from the file it is in**, not from the repository root,
+  so a doc in a subdirectory can link back up with `../`; and an anchor is
+  checked in whichever markdown file the link lands in.
+- **An anchor keeps its underscores**, as GitHub's does. A rule that stripped
+  them reported a correct link as broken, and a broken checker looks exactly
+  like a broken document.
+- **A file a check is told to read and cannot find is a finding.** A synced
+  folder served one docs run 33 files and the next 35, with no commit in
+  between, and both said OK.
+- **Printed text is held to ASCII, not to cp1252.** One copy of the rule
+  accepted anything cp1252 encodes, which is still a crash on the next host.
+- **The import rule answers on Python 3.9** (from where a module lives) instead
+  of skipping, because a rule that skips on the oldest supported Python is
+  unchecked exactly where an old standard library would break.
 
 ## Develop
 
@@ -191,8 +242,11 @@ python -m pytest
 
 The tests build throwaway git repositories, so git must be on PATH; the one
 that runs the hook also needs an sh (Git for Windows' counts) and skips
-without one. `tests/test_rules.py` holds the package to its own rules: the
-standard library only at import, ASCII only, a docstring on every definition.
+without one. `tests/test_rules.py` holds the package to its own rules through
+`docs` and `source`: the standard library only at import, ASCII only, a
+docstring on every definition. `test_docs.py` and `test_source.py` plant a
+defect for each of those checks, so the package checking itself is not the
+checker vouching for itself.
 CI runs the suite on Windows, Linux and macOS at Python 3.9, 3.12 and 3.14,
 then again against the built wheel.
 

@@ -11,5 +11,12 @@ plus `provenance`, which records what produced a run (the commit and the
 environment) when it happens, and `hooks`, which installs the sh hook that
 repairs git's stat cache in a synced folder.  Split out of
 loggger101/economicspace with its history.
+
+And the house rules a family of repositories shares, so that each stops
+keeping its own drifting copy:
+
+  docs     do the docs hold together (links, anchors, structure, dashes)?
+  source   do the sources follow the rules (docstrings, ASCII, imports, a
+           quiet import, one version)?
 """
-__version__ = "0.2.0"
+__version__ = "0.3.0"

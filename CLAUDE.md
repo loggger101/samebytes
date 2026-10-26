@@ -1,7 +1,9 @@
 # CLAUDE.md: working in this repo
 
-samebytes is four modules in `samebytes/` (`tree.py`, `parity.py`,
-`frames.py`, `hooks.py`), the sh hooks in `samebytes/hooks/`, and their tests.
+samebytes is the modules in `samebytes/` (`tree.py`, `parity.py`,
+`frames.py`, `provenance.py`, `hooks.py`, and the house-rule checks
+`docs.py` and `source.py`), the sh hooks in `samebytes/hooks/`, and their
+tests.
 Most of the code is a trap with its reason beside it; README's "Why it looks
 the way it does" is the list. Rules:
 
@@ -25,6 +27,12 @@ the way it does" is the list. Rules:
   (`.git/config` is shared across machines by a synced folder, so
   `core.hooksPath` must be relative). `hooks check` is what keeps the copies
   honest; a hook edit here means every consumer re-installs.
+- **`docs` and `source` return `(findings, checked)`, and a listed file that
+  is not on disk is a finding, never a skip.** Consumers print the count
+  (economicspace's `verify_docs.py` checks 4, 5, 6 and 11 print these
+  findings verbatim), so a finding's wording is output: change it in a
+  release note, not in passing. A rule one consumer needs looser is a keyword
+  argument (`one_h1=False`), never a weaker default.
 - **A new trap gets a planted test.** Re-introduce the bug in a copy of the
   package and show its test fails before trusting the test's pass.
 - **The version is written once**, `samebytes.__version__`; `pyproject.toml`

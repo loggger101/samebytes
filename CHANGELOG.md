@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.3.0 (2026-10-26)
+
+Two new modules, the house rules economicspace, spacecost, spacevalue,
+AsteroidCatalog, quietqueue, quietlaunch and samebytes had each written for
+themselves. Nothing v0.2.0 printed, hashed, probed or installed changes.
+
+- **`docs`**: `links` (every relative link names a file that exists and every
+  `#anchor` a heading; resolved from the linking file, checked in whichever
+  markdown file it lands in, `%20` decoded), `structure` (balanced fences, no
+  ragged table, no heading-level jump, no repeated h1/h2, exactly one h1
+  unless `one_h1=False`), `dashes` (no em- or en-dash and no line opening with
+  a bare comma; `prose_only` sources in comments and docstrings only) and
+  `slugs`, GitHub's anchor rule with its `-1` suffixes. Moved from
+  economicspace's `verify_docs.py` checks 4, 5 and 6, which now call them;
+  three fixes on the way: a heading inside a code fence no longer makes an
+  anchor, a table that ends the file is checked, and an anchor into an
+  unlisted markdown file is checked.
+- **`source`**: `docstrings` (nested and async definitions count; check 11),
+  `non_ascii`, `printed_non_ascii` (ASCII, not "encodable in cp1252", which
+  spacecost's copy accepted), `calls`, `imports` (module level the standard
+  library and `allowed` only, `lazy` only inside functions), `is_stdlib`
+  (answers on Python 3.9 instead of skipping), `quiet_import` (a fresh
+  interpreter exits 0, prints nothing and creates no file),
+  `version_written_once` and `requirements_match`.
+- Every check returns `(findings, checked)`, and a listed file not on disk is
+  a finding.
+- `tests/test_rules.py` now runs samebytes' own rules through these, and adds
+  its docs, its printed strings and its version.
+
+Proved: 30 new tests, 120 in all. On economicspace the moved checks read what
+the old ones read (534 anchors, 10 docs, 41 files, 753 definitions) with the
+same verdict. 22 defects were planted in a copy of the two modules (the
+underscore stripped from anchors, fenced headings read, links resolved from
+the root, `%20` not decoded, anchors in other files unchecked, a missing file
+skipped, the last table unchecked, zero h1s passing, `one_h1` ignored,
+`prose_only` reading the whole file, the orphan comma unchecked, nested and
+async definitions exempt, cp1252 accepted, the 3.9 fallback answering yes, a
+lazy import allowed at module level, a guarded import exempt, created files
+unseen, an `env` removal ignored, a typed version accepted, requirement names
+compared case-sensitively, a parse error swallowed), and each failed its test.
+
 ## v0.2.0 (2026-10-26)
 
 Three additions. Nothing that v0.1.0 printed, hashed, probed or installed
