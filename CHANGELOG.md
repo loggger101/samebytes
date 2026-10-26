@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Documentation only; no code, printed output, probe or hook changed.
+
+- README: a Develop section (running the tests, what they need, how a release
+  is made), a Licence section, and the `--no-config` / `--require-config`
+  flags of `hooks`.
+- Docstrings in `tree`, `frames` and `parity` say plainly what they said with
+  filler, and a few paragraphs broken by the move out of economicspace are
+  rewrapped.
+- `pyproject.toml`: a plainer description, two keywords, Changelog and Issues
+  links.
+
 ## v0.1.0 (2026-10-25)
 
 First release: economicspace's `tree_check.py`, `platform_check.py` and
