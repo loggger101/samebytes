@@ -1,0 +1,61 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Windows is where the synced-folder failures this package exists for were
+    # met, and the only place a CRLF checkout of the hooks is the default;
+    # Linux and macOS are where the hooks' executable bit and a different libm
+    # matter.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.12", "3.14"]
+        # actions/python-versions builds 3.9 for Ubuntu 22.04 and 24.04 only,
+        # and `ubuntu-latest` moved past them on 2026-10-19 (the same note as
+        # quietqueue's and spacecost's workflows), so the floor leg runs on 24.04.
+        exclude:
+          - os: ubuntu-latest
+            python-version: "3.9"
+        include:
+          - os: ubuntu-24.04
+            python-version: "3.9"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e ".[test]"
+      - name: Test
+        run: python -m pytest -q
+
+  # The hooks reach a consumer as package data.  The leg above runs an
+  # editable install, which reads them from the checkout; this one installs
+  # the built wheel and runs the suite against that copy, from outside the
+  # checkout, so a hook missing from package-data fails here.
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build and install the wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel
+          python -m pip install dist/*.whl pytest numpy pandas
+      - name: Test against the installed copy
+        working-directory: ${{ runner.temp }}
+        run: |
+          cp -r ${{ github.workspace }}/tests ./tests
+          python -c "import samebytes, os; assert 'site-packages' in samebytes.__file__, samebytes.__file__"
+          python -m pytest -q -p no:cacheprovider tests -k "not test_rules"

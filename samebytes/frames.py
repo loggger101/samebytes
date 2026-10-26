@@ -114,8 +114,15 @@ def blanks(s) -> list:
     different.  They are not: a CSV cannot represent the difference, so the
     file's own hash cannot see it either, and a comparator stricter than the
     artefact it compares reports failures that do not exist.
+
+    pandas' own missing marker, `pd.NA` (the nullable `string` dtype's), is
+    tested by identity BEFORE the `v != v` test, because comparing it raises
+    "boolean value of NA is ambiguous".  economicspace's verify.py never met
+    one; this is the only input on which the two differ, and there it raised.
     """
-    return [None if (v is None or v != v or v == "") else v
+    import pandas as pd
+    na = pd.NA
+    return [None if (v is None or v is na or v != v or v == "") else v
             for v in s.to_numpy().tolist()]
 
 
