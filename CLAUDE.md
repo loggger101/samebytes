@@ -29,8 +29,9 @@ the way it does" is the list. Rules:
   honest; a hook edit here means every consumer re-installs.
 - **`docs` and `source` return `(findings, checked)`, and a listed file that
   is not on disk is a finding, never a skip.** Consumers print the count
-  (economicspace's `verify_docs.py` checks 4, 5, 6, 10, 11 and 12 print these
-  findings verbatim), so a finding's wording is output: change it in a
+  (economicspace's `verify_docs.py` checks 4, 5, 6, 10, 11 and 12, and check
+  7's pin comparison, print these findings verbatim; the five other packages'
+  tests assert on them), so a finding's wording is output: change it in a
   release note, not in passing. A rule one consumer needs looser is a keyword
   argument (`one_h1=False`), never a weaker default.
 - **`source.field_docs` is a reader, not a check.** It answers `{}` for a file
