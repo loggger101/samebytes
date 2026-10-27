@@ -214,3 +214,57 @@ def test_transfer_planted(tmp_path):
                    "12.5           | It took 12.5 s."]
     assert docs.transfer(str(tmp_path), "NOPE.md", ["NEW.md"]) == (
         ["NOPE.md is listed and is not on disk"], 0)
+
+
+def _pinned(root):
+    """A repository pinning `pkg` in four forms, plus pins `pins` must not read."""
+    write(root, "requirements.txt", "pkg @ git+https://github.com/me/pkg@v1.2.0\n")
+    write(root, "pyproject.toml", 'dependencies = [\n    "pkg @ git+https://github.com/me/pkg.git@v1.2.0",\n]\n')
+    write(root, "ci.yml", '- uses: actions/checkout@v4\n'
+                          '- run: pip install "pkg @ git+https://github.com/me/pkg@v1.2.0"\n')
+    write(root, "README.md", "# R\nInstall from github.com/me/pkg@v1.2.0.\n"
+                             "A fork: github.com/other/pkg@v9.9.9\n")
+    return ["requirements.txt", "pyproject.toml", "ci.yml", "README.md"]
+
+
+def test_pins_clean(tmp_path):
+    """Every URL form agrees; another owner, an action and a sentence's full stop are not read as pins."""
+    files = _pinned(tmp_path)
+    assert docs.pins(str(tmp_path), files, "me") == ([], 4)
+    assert docs.pin_copies(str(tmp_path), files, "me") == {
+        "pkg": {"v1.2.0": ["requirements.txt:1", "pyproject.toml:2", "ci.yml:2", "README.md:2"]}}
+
+
+def test_pins_planted(tmp_path):
+    """One copy left behind by a repin is named with both refs; a missing file and an absent package are findings."""
+    files = _pinned(tmp_path)
+    write(tmp_path, "ci.yml", 'run: pip install "pkg @ git+https://github.com/me/pkg@v1.1.0"\n')
+    bad, n = docs.pins(str(tmp_path), files, "me")
+    assert n == 4 and bad == ["pkg is pinned at 2 refs: v1.1.0 in ci.yml:1; "
+                              "v1.2.0 in requirements.txt:1, pyproject.toml:2, README.md:2"]
+    bad, n = docs.pins(str(tmp_path), files + ["GONE.txt"], "me", packages=["pkg", "lib"])
+    assert bad[0] == "GONE.txt is listed and is not on disk"
+    assert "no pin of me/lib in the 5 file(s) read" in bad
+    assert n == 4
+
+
+def test_pins_prose_claims(tmp_path):
+    """A claim belongs to the package named nearest before it; each claim file must state every package."""
+    _pinned(tmp_path)
+    write(tmp_path, "lib.txt", "lib @ git+https://github.com/me/lib@v0.2.0\n")
+    files = ["requirements.txt", "lib.txt"]
+    claim = (r"pinned to tag `(v[^`]+)`", ["CLAUDE.md"])
+    write(tmp_path, "CLAUDE.md", "# C\npkg is pinned to tag `v1.2.0`, and lib, beside it, is "
+                                 "pinned to tag `v0.2.0`.\n")
+    assert docs.pins(str(tmp_path), files, "me", ["pkg", "lib"], [claim]) == ([], 4)
+    assert docs.pin_copies(str(tmp_path), files, "me", ["pkg", "lib"], [claim])["lib"] == {
+        "v0.2.0": ["lib.txt:1", "CLAUDE.md:2 (prose)"]}
+    # A stale sentence, then a reworded one the pattern no longer reads.
+    write(tmp_path, "CLAUDE.md", "# C\npkg is pinned to tag `v1.1.0`; lib is tagged v0.2.0.\n")
+    bad, n = docs.pins(str(tmp_path), files, "me", ["pkg", "lib"], [claim])
+    assert n == 3 and bad == [
+        "pkg is pinned at 2 refs: v1.1.0 in CLAUDE.md:2 (prose); v1.2.0 in requirements.txt:1",
+        "CLAUDE.md states no lib ref in a form `pins` reads (pinned to tag `(v[^`]+)`)"]
+    # A claim with no package named in its window is a pin of nothing.
+    write(tmp_path, "CLAUDE.md", "# C\n" + "x" * 300 + " pinned to tag `v7.0.0`.\n")
+    assert docs.pin_copies(str(tmp_path), [], "me", ["pkg"], [claim]) == {}

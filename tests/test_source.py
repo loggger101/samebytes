@@ -177,3 +177,82 @@ def test_requirements_match(tmp_path):
     bad, n = source.requirements_match(str(tmp_path))
     assert n == 4 and bad == ["requirements.txt ['numpy', 'scipy'] != pyproject dependencies "
                               "['numpy', 'pandas', 'samebytes']"]
+
+
+CONFIG = '''
+    from dataclasses import dataclass
+
+    @dataclass
+    class Cfg:
+        """A config."""
+        # \u2500\u2500\u2500 MINING THROUGHPUT  (v1.4.0) \u2500\u2500\u2500\u2500\u2500\u2500
+        # Rate of the rig.
+        #   a hanging indent survives
+        rate: float = 1.0   # kg per hour
+        bare: int = 0
+
+        hashy: str = "a#b"   # a default may hold a hash
+        # ------  ----------
+        # a table drawn above
+        table: int = 1
+        # \u2550\u2550 \u0394v BUDGET \u2550\u2550
+        # Budget.
+        dv: float = 2.0
+        # ========
+        ruled: int = 2
+        # __ \u00b7 __
+        dotted: int = 3
+
+
+    class Other:
+        """Not this one."""
+        rate: int = 0   # wrong class
+'''
+
+
+def test_field_docs_reads_the_dashboard_rule(tmp_path):
+    """Block above plus trailing, lines kept, banners are sections.
+
+    A drawn table row, a bare rule and a banner with no title are not sections:
+    the first and last stay in the help, the rule ends it.
+    """
+    path = str(tmp_path / write(tmp_path, "cfg.py", CONFIG))
+    docs = source.field_docs(path, "Cfg")
+    mining = "MINING THROUGHPUT  (v1.4.0)"
+    assert docs == {
+        "rate": {"help": "Rate of the rig.\n  a hanging indent survives\nkg per hour", "section": mining},
+        "bare": {"help": "", "section": mining},
+        "hashy": {"help": "a default may hold a hash", "section": mining},
+        "table": {"help": "------  ----------\na table drawn above", "section": mining},
+        "dv": {"help": "Budget.", "section": "\u0394v BUDGET"},
+        "ruled": {"help": "", "section": "\u0394v BUDGET"},
+        "dotted": {"help": "__ \u00b7 __", "section": "\u0394v BUDGET"},
+    }
+    assert source.field_docs(path, "Other") == {"rate": {"help": "wrong class", "section": "Other"}}
+
+
+def test_field_docs_answers_empty_when_it_cannot_read(tmp_path):
+    """No file, no parse, no class: {} each time (the dashboard shows no help, never crashes)."""
+    broken = str(tmp_path / write(tmp_path, "broken.py", "class Cfg(:\n"))
+    good = str(tmp_path / write(tmp_path, "cfg.py", CONFIG))
+    assert source.field_docs(str(tmp_path / "gone.py"), "Cfg") == {}
+    assert source.field_docs(broken, "Cfg") == {}
+    assert source.field_docs(good, "Nope") == {}
+
+
+def test_missing_help(tmp_path):
+    """Bare fields named; `fields` catches an undeclared one; `skip` exempts; unreadable inputs are findings."""
+    write(tmp_path, "cfg.py", CONFIG)
+    bad, n = source.missing_help(str(tmp_path), "cfg.py", "Cfg")
+    assert n == 7 and bad == ["cfg.py: Cfg.bare has no help comment",
+                              "cfg.py: Cfg.ruled has no help comment"]
+    bad, n = source.missing_help(str(tmp_path), "cfg.py", "Cfg", fields=["rate", "bare", "inherited"],
+                                 skip=["bare"])
+    assert n == 2 and bad == ["cfg.py: Cfg declares no field inherited"]
+    write(tmp_path, "broken.py", "class Cfg(:\n")
+    assert source.missing_help(str(tmp_path), "gone.py", "Cfg") == (
+        ["gone.py is listed and is not on disk"], 0)
+    assert source.missing_help(str(tmp_path), "broken.py", "Cfg")[0][0].startswith(
+        "broken.py does not parse: ")
+    assert source.missing_help(str(tmp_path), "cfg.py", "Nope") == (
+        ["cfg.py defines no class Nope"], 0)

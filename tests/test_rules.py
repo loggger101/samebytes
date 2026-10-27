@@ -82,6 +82,14 @@ def test_version_is_written_once():
     assert source.version_written_once(str(ROOT), "samebytes") == ([], 1)
 
 
+def test_readme_installs_this_version():
+    """README's install line pins the release it describes (it named v0.3.0 through v0.4.0)."""
+    from samebytes import __version__
+    files = ["README.md", "CLAUDE.md"]
+    assert docs.pins(str(ROOT), files, "loggger101", packages=["samebytes"])[0] == []
+    assert list(docs.pin_copies(str(ROOT), files, "loggger101")["samebytes"]) == ["v" + __version__]
+
+
 def test_imports_without_numpy_or_pandas():
     """A fresh interpreter imports every module with numpy and pandas blocked."""
     code = ("import sys; sys.modules['numpy'] = None; sys.modules['pandas'] = None\n"

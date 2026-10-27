@@ -33,6 +33,11 @@ the way it does" is the list. Rules:
   findings verbatim), so a finding's wording is output: change it in a
   release note, not in passing. A rule one consumer needs looser is a keyword
   argument (`one_h1=False`), never a weaker default.
+- **`source.field_docs` is a reader, not a check.** It answers `{}` for a file
+  it cannot read, because a dashboard must render without help;
+  `missing_help` is the check, and turns each of those into a finding. Its
+  output is help text a dashboard shows, so a change to the rule is a release
+  note too.
 - **A new trap gets a planted test.** Re-introduce the bug in a copy of the
   package and show its test fails before trusting the test's pass.
 - **The version is written once**, `samebytes.__version__`; `pyproject.toml`

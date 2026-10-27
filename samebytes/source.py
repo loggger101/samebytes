@@ -24,20 +24,37 @@ it). This is the one copy.
                                      `package.__version__` and types none itself
     requirements_match(root)         requirements.txt and pyproject's dependencies
                                      name the same packages
+    missing_help(root, path, class_name, fields=None, skip=())
+                                     every field of a config class carries the
+                                     comment `field_docs` reads as its help
 
 Like `samebytes.docs`, every check takes the repository root and paths relative
 to it (absolute paths work too) and returns `(findings, checked)`: one-line
 findings, empty when clean, and how many things were read. A listed file that
 is not on disk is a finding. Nothing here imports beyond the standard library.
+
+One reader sits beside the checks: `field_docs(path, class_name)`, field name ->
+{"help", "section"} scraped from the comments in a config class's source. It is
+economicspace's dashboard rule, moved from its `ui_meta.scrape_field_docs`:
+the comment block directly above a field, stopping at a blank line or a section
+banner, plus any trailing comment on the field's own line; the banner above it
+is the field's section. A dashboard that shows these as help and a package that
+tests its own config by them must read one rule, so this is the one copy (a
+hand-written copy in spacecost's tests had already drifted from it). It answers
+{} for a file it cannot read or parse and for a class it cannot find; the
+check `missing_help` tells those apart.
 """
 import ast
 import importlib.util
+import io
 import os
 import re
 import subprocess
 import sys
 import sysconfig
 import tempfile
+import tokenize
+from typing import Dict, List, Optional
 
 from .docs import _resolve, missing, read
 
@@ -286,3 +303,181 @@ def requirements_match(root, requirements="requirements.txt"):
         bad.append("%s %s != pyproject dependencies %s"
                    % (requirements, sorted(req), sorted(meta)))
     return bad, len(req | meta)
+
+
+# Matches `# --- MINING THROUGHPUT  (v1.4.0) --------------------` and friends.
+# The modules use box-drawing rules of a few different characters (U+2500,
+# U+2550, U+2501, and the dots U+00B7 and U+2022), written below as escapes
+# because this package's source is ASCII.
+#
+# The class is built through re.escape because a literal "-" sitting between
+# two other characters is a RANGE, not a hyphen: the same family of mistake as
+# the `str.contains(..., regex=False)` fixes in the pipeline itself.
+_RULE_CHARS = "".join(re.escape(c) for c in "\u2500\u2550\u2501=_\u00b7\u2022-")
+_BANNER_RE = re.compile(
+    rf"^#\s*[{_RULE_CHARS}]{{2,}}\s*(?P<title>.*?)\s*[{_RULE_CHARS}]{{2,}}\s*$"
+)
+_BARE_RULE_RE = re.compile(rf"^#\s*[{_RULE_CHARS}]{{4,}}\s*$")
+
+
+def _banner_title(line: str) -> Optional[str]:
+    """Section title if `line` is a section banner, else None.
+
+    A banner must have an actual title, or an ASCII table drawn in a comment
+    becomes a section: a separator row like `------  ----------------` matches
+    the banner shape exactly and produced a group heading with that literal
+    text. The instance this was written for was the version-history block above
+    each `pipeline_version`, which moved to versions.md in 2026-09; the guard
+    stays because a comment is free to draw a table at any time, and a UI that
+    invents a section from one is worse than a bare dial.
+    """
+    match = _BANNER_RE.match(line.strip())
+    if not match:
+        return None
+    title = match.group("title").strip()
+    # Reject a "title" made of nothing but more rule characters.
+    if not title or not re.search(r"[0-9A-Za-z\u0394]", title):
+        return None
+    return title
+
+
+def _clean_comment(line: str) -> str:
+    """A comment line with its `#` and one following space removed.
+
+    Exactly ONE space, so the modules' hanging indents survive into the help
+    text: several config blocks lay out a small table or a bulleted list under
+    a field, and stripping the leading whitespace would flatten them.
+    """
+    body = line.lstrip()[1:]
+    return body[1:] if body.startswith(" ") else body
+
+
+def _trailing_comments(src: str) -> Dict[int, str]:
+    """line number -> the inline `#` comment on that line, if any.
+
+    Read through `tokenize` rather than by splitting on "#", because a default
+    value is allowed to contain one.  This exists because several fields carry
+    their whole description as a TRAILING comment and nothing else:
+
+        preview_rows:      int = 20   # rows per table in the end-of-run preview
+        request_timeout: int = 60   # seconds per HTTP call; a timeout is a soft failure
+
+    Reading only the block ABOVE a field showed those as having no help at all,
+    while the text was sitting on the same line.
+    """
+    out: Dict[int, str] = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                # A comment that starts the line is a block comment, not a
+                # trailing one; those are already handled by the walk upward.
+                if src.split("\n")[tok.start[0] - 1][:tok.start[1]].strip():
+                    out[tok.start[0]] = _clean_comment(tok.string).strip()
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return {}
+    return out
+
+
+def field_docs(path: str, class_name: str) -> Dict[str, Dict[str, str]]:
+    """field name -> {"help", "section"} scraped from a module source.
+
+    Walks backwards from each field definition collecting the comment block
+    directly above it, stopping at the first blank line or section banner. The
+    banner title, if there is one, becomes the field's group heading: the
+    modules already organise their configs into labelled sections and there is
+    no reason for the UI to invent its own taxonomy.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        tree = ast.parse(src)
+    except (OSError, SyntaxError):
+        return {}
+
+    lines = src.split("\n")
+    trailing_comments = _trailing_comments(src)
+    cls = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.ClassDef) and n.name == class_name),
+        None,
+    )
+    if cls is None:
+        return {}
+
+    docs: Dict[str, Dict[str, str]] = {}
+    for stmt in cls.body:
+        if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+            continue
+
+        block: List[str] = []
+        section = ""
+
+        i = stmt.lineno - 2          # 0-indexed line directly above the field
+        while i >= 0 and lines[i].strip() and lines[i].lstrip().startswith("#"):
+            section = _banner_title(lines[i]) or ""
+            if section or _BARE_RULE_RE.match(lines[i].strip()):
+                break
+            block.append(_clean_comment(lines[i]))
+            i -= 1
+
+        # If the field had no comment of its own, keep scanning up for the
+        # section banner it lives under so it still gets grouped.
+        while not section and i >= 0:
+            line = lines[i].strip()
+            if line.startswith("class ") or line.startswith("@dataclass"):
+                break
+            section = _banner_title(line) or ""
+            i -= 1
+
+        help_text = "\n".join(reversed(block)).strip()
+
+        # A trailing comment on the field's own line. For most fields this is
+        # the only description there is; where a block exists too it usually
+        # carries the part the block leaves out ("0 = all 1.55 M asteroids"),
+        # so it is appended rather than discarded, and skipped when the block
+        # already says it.
+        trailing = trailing_comments.get(stmt.lineno, "")
+        if trailing and trailing not in help_text:
+            help_text = (help_text + "\n" + trailing).strip() if help_text else trailing
+
+        docs[stmt.target.id] = {
+            "help": help_text,
+            "section": section or "Other",
+        }
+
+    return docs
+
+
+def missing_help(root, path, class_name, fields=None, skip=()):
+    """Every field of `class_name` in `path` carries the help `field_docs` would show.
+
+    `fields`, when given, is the names the class must declare in its own body
+    (a dataclass's `dataclasses.fields`, say): one it does not declare is a
+    finding, because an inherited field's help is read from the base class's
+    source, not this one. Without it, every annotated field in the body is
+    checked. Names in `skip` (paths, say, which a dashboard does not show as a
+    dial) are not checked. A file that is missing or does not parse, or that
+    has no such class, is a finding, where `field_docs` would answer {}.
+    `checked` counts the fields checked.
+    """
+    full, rel = _resolve(root, path)
+    if not os.path.exists(full):
+        return missing(root, [path]), 0
+    try:
+        tree = ast.parse(read(full))
+    except SyntaxError as exc:
+        return ["%s does not parse: %s" % (rel, exc.msg)], 0
+    if not any(isinstance(n, ast.ClassDef) and n.name == class_name for n in ast.walk(tree)):
+        return ["%s defines no class %s" % (rel, class_name)], 0
+    docs = field_docs(full, class_name)
+    names = list(docs) if fields is None else list(fields)
+    bad, n = [], 0
+    for name in names:
+        if name in skip:
+            continue
+        n += 1
+        if name not in docs:
+            bad.append("%s: %s declares no field %s" % (rel, class_name, name))
+        elif not docs[name]["help"].strip():
+            bad.append("%s: %s.%s has no help comment" % (rel, class_name, name))
+    return bad, n

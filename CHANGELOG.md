@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.5.0 (2026-10-27)
+
+A pin check and a config-help reader, each a rule two or more consumers had
+written for themselves. Nothing v0.4.0 printed, hashed, probed or installed
+changes.
+
+- **`docs.pins(root, files, owner, packages=None, claims=())`**: every
+  `github.com/<owner>/<repo>[.git]@<ref>` in `files` names one ref per
+  repository. The pins are found rather than listed, so a new copy joins by
+  existing. `packages` holds only those repositories and requires each to be
+  pinned; `claims`, `(pattern, files)` pairs, adds pins stated in prose,
+  each belonging to the package named nearest before it within
+  `CLAIM_WINDOW` (200) characters, and with `packages` every claim file must
+  state a ref for each. A finding names every ref and its `file:line`;
+  `checked` counts the copies. **`docs.pin_copies`** returns the copies
+  themselves. Generalised from economicspace's `verify_docs.py` check 7.
+- **`source.field_docs(path, class_name)`**: field name -> `{"help",
+  "section"}` from a config class's comments, moved from economicspace's
+  `ui_meta.scrape_field_docs`: the block above a field to the first blank
+  line, banner or bare rule, plus its trailing comment (read through
+  `tokenize`, so a `#` in a default is not one), under the titled banner it
+  sits beneath. The only edits are the name and the non-ASCII rule characters
+  written as `\u` escapes, because this package's source is ASCII.
+- **`source.missing_help(root, path, class_name, fields=None, skip=())`**:
+  every field has help; `fields` names the fields the class must declare
+  itself, `skip` exempts some. A missing or unparseable file and an absent
+  class are findings, where `field_docs` answers `{}`.
+- README's install line said v0.3.0 at v0.4.0; `test_rules.py` now holds it
+  to `__version__` through `docs.pins`.
+
+Proved: 7 new tests, 133 in all. 18 defects were planted in a copy of the new
+code and each failed its test:
+- for `field_docs`: newlines joined as spaces, the trailing comment dropped,
+  a title-less banner made a section, a rule character removed, comments
+  split on `#`, and a bare rule not ending the block;
+- four for `missing_help`;
+- for `pins`: the full stop kept on a ref, any owner read, `.git` kept in the
+  name, a claim given to the first package named instead of the nearest, a
+  silent claim file passed, an unpinned package passed, a missing file
+  skipped, and a claim with no package named attributed anyway.
+
+On economicspace, `field_docs` returned the same dicts as `scrape_field_docs`
+for every one of the 47 classes in the tracked Python of seven repositories
+(202 fields), and the dashboard's 112 field specs were identical with it
+swapped in. `pin_copies` found the same refs in the same files as check 7's
+own loop, both on the live tree (10 copies of two pins) and on a copy with one
+planted repin.
+
 ## v0.4.0 (2026-10-26)
 
 Two more docs checks, the last of economicspace's `verify_docs.py` that need
