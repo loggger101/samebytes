@@ -30,10 +30,12 @@ permanently "modified" and makes `git merge --ff-only` refuse.
 And the house rules the repositories it serves had each written for
 themselves: **`docs`** (do the links, anchors and markdown structure still
 hold, are the dashes gone, does a rules file quote none of its README's
-measurements, and did a reorganisation drop no number) and **`source`** (a docstring on every
+measurements, did a reorganisation drop no number, and is every git pin of a
+sibling repository at one ref) and **`source`** (a docstring on every
 definition, ASCII where it is printed, only the imports a package declares, a
-silent import, one version). Five copies of each had drifted apart; this is the
-one copy.
+silent import, one version, a help comment on every config field, and the
+reader that scrapes that help for a dashboard). Five copies of each had drifted
+apart; this is the one copy.
 
 Python 3.9 or later. **No dependencies**: numpy and pandas are imported only by
 the functions that need them, so installing samebytes can never move a version
@@ -46,7 +48,7 @@ repository carries the history of the files it came from.
 ## Install
 
 ```bash
-pip install "samebytes @ git+https://github.com/loggger101/samebytes@v0.3.0"
+pip install "samebytes @ git+https://github.com/loggger101/samebytes@v0.5.0"
 ```
 
 ## Use
@@ -175,6 +177,30 @@ for a rules file that must quote no measurement its README does,
 number, `source.non_ascii`, `source.calls(root, files, ["print"])`,
 `source.is_stdlib` and `source.requirements_match`.
 
+**Pins and config help**:
+
+```python
+FILES = ["requirements.txt", "pyproject.toml", ".github/workflows/tests.yml", "README.md"]
+
+def test_pins():
+    # every github.com/<owner>/<repo>@<ref> in FILES names one ref per repository
+    bad, checked = docs.pins(ROOT, FILES, "loggger101")
+    assert bad == [] and checked > 0
+
+def test_config_help():
+    bad, checked = source.missing_help(ROOT, "mypkg/config.py", "Config")
+    assert bad == [] and checked > 0
+```
+
+`docs.pins` also takes `packages=[...]` (each must be pinned, and only those
+are held) and `claims=[(pattern, files)]` for pins stated in prose, where a
+claim belongs to the package named nearest before it; `docs.pin_copies`
+returns every copy and where it is. Leave changelogs out of `files`: an old
+pin there is history. `source.field_docs(path, class_name)` is the reader
+behind `missing_help`: field name -> `{"help", "section"}`, the comment block
+above each field plus its trailing comment, under the banner it sits beneath.
+A dashboard that shows these as help should call it rather than copy it.
+
 ## Why it looks the way it does
 
 Each of these was a real failure, and each has a test that plants it:
@@ -236,6 +262,18 @@ Each of these was a real failure, and each has a test that plants it:
 - **The import rule answers on Python 3.9** (from where a module lives) instead
   of skipping, because a rule that skips on the oldest supported Python is
   unchecked exactly where an old standard library would break.
+- **A pin is found, not looked up.** A check that compared two named files
+  missed the third and fourth copies twice; every URL-form pin in the listed
+  files joins the comparison by existing. When this was written, five
+  repositories pinned samebytes at one tag in CI and another in pyproject.
+- **Config help is read by the rule that shows it.** A package that tested
+  its own help comments with a hand-written copy of the dashboard's scraper
+  had drifted from it (spaces for newlines, the trailing comment dropped, a
+  drawn table row read as a banner), so the two could disagree about any field
+  with a comment.
+- **A drawn table row is not a section banner**: `# ------  ------` matches a
+  banner's shape and once became a dashboard heading with that literal text.
+  A banner needs a title with a letter or digit in it.
 
 ## Develop
 

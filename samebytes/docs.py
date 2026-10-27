@@ -24,6 +24,11 @@ reached the others. This is the one copy.
     transfer(root, before, after)
                              every distinctive number in `before` still appears
                              somewhere in `after` (the audit for a reorganisation)
+    pins(root, files, owner, packages=None, claims=())
+                             every git pin of one of `owner`'s repositories
+                             (`github.com/<owner>/<repo>@<ref>`, and prose
+                             claims by pattern) names one ref per repository;
+                             `pin_copies` returns the copies themselves
 
 Every check takes the repository root and paths relative to it (an absolute
 path also works), and returns `(findings, checked)`: a list of one-line
@@ -383,3 +388,112 @@ def transfer(root, before, after):
     lost = sorted((t, c) for t, c in seen.items() if t not in hay)
     bad += ["%-14s | %s" % (t, c[:110]) for t, c in lost]
     return bad, len(seen)
+
+
+# How far before a prose claim its package must be named, in characters.
+CLAIM_WINDOW = 200
+
+
+def _pin_url(owner):
+    """`github.com/<owner>/<repo>[.git]@<ref>`: groups repo and ref.
+
+    The ref ends at whitespace, a quote, a backtick, a comma or a closing
+    bracket, so a pin inside `"..."`, a markdown link or a YAML string reads
+    the same; a sentence's full stop is stripped by the caller.
+    """
+    return re.compile(r"github\.com/%s/([A-Za-z0-9_.-]+?)(?:\.git)?@([^\s\"'`,)\]>]+)"
+                      % re.escape(owner))
+
+
+def _line(text, at):
+    """The 1-based line number of offset `at` in `text`."""
+    return text.count("\n", 0, at) + 1
+
+
+def pin_copies(root, files, owner, packages=None, claims=()):
+    """{repo: {ref: [where, ...]}}: every pin of one of `owner`'s repositories in `files`.
+
+    A pin is the URL form, `github.com/<owner>/<repo>@<ref>` (pip's
+    `git+https://...@vX.Y.Z`, a CI step, a README's install line), found rather
+    than looked up, so a copy typed tomorrow joins with no edit. `where` is
+    `file:line`.
+
+    `claims` adds the prose form: `(pattern, files)` pairs, `pattern` a regex
+    whose first group is the ref (`pinned to tag `(v[^`]+)``). Prose carries no
+    URL, so a claim belongs to the package named nearest before it, within
+    CLAIM_WINDOW characters; one named nowhere in that window is not a pin of
+    anything and is left out. `where` is then `file:line (prose)`. The
+    candidate names are `packages` when given, else every repository the URL
+    form found. Files that are not on disk are skipped here; `pins` reports
+    them.
+    """
+    url = _pin_url(owner)
+    out = {}
+    for name in files:
+        path, rel = _resolve(root, name)
+        if not os.path.exists(path):
+            continue
+        text = read(path)
+        for m in url.finditer(text):
+            ref = m.group(2).rstrip(".:;")
+            out.setdefault(m.group(1), {}).setdefault(ref, []).append(
+                "%s:%d" % (rel, _line(text, m.start())))
+    names = list(packages) if packages is not None else sorted(out)
+    for pattern, claim_files in claims:
+        pattern = re.compile(pattern) if isinstance(pattern, str) else pattern
+        for name in claim_files:
+            path, rel = _resolve(root, name)
+            if not os.path.exists(path):
+                continue
+            text = read(path)
+            for m in pattern.finditer(text):
+                window = text[max(0, m.start() - CLAIM_WINDOW):m.start()]
+                near = max(names, key=lambda p: window.rfind(p), default=None)
+                if near is None or window.rfind(near) < 0:
+                    continue
+                out.setdefault(near, {}).setdefault(m.group(1), []).append(
+                    "%s:%d (prose)" % (rel, _line(text, m.start())))
+    return out
+
+
+def pins(root, files, owner, packages=None, claims=()):
+    """Each of `owner`'s repositories is pinned at one ref everywhere it is pinned.
+
+    Two copies of a pin at different refs install two different revisions,
+    and both import cleanly: a repin that reaches some copies and not others
+    says nothing. `files` are read for the URL form and `claims` for the prose
+    form, as `pin_copies` describes. Leave history (a changelog, a release
+    log) out of `files`: an old pin there is an account of what happened.
+
+    With `packages`, only those repositories are held, each must be pinned at
+    least once, and every file of every claim must state a ref for each of
+    them (a reworded sentence the pattern stops matching is how a prose check
+    goes back to reading nothing). A finding names each ref and where it is.
+    `checked` counts the copies found.
+    """
+    names = list(files) + [f for _, fs in claims for f in fs]
+    bad = missing(root, list(dict.fromkeys(names)))
+    found = pin_copies(root, files, owner, packages, claims)
+    held = list(packages) if packages is not None else sorted(found)
+    for pkg in held:
+        refs = found.get(pkg, {})
+        if not refs:
+            bad.append("no pin of %s/%s in the %d file(s) read" % (owner, pkg, len(files)))
+        elif len(refs) > 1:
+            bad.append("%s is pinned at %d refs: %s"
+                       % (pkg, len(refs), "; ".join("%s in %s" % (ref, ", ".join(where))
+                                                    for ref, where in sorted(refs.items()))))
+    if packages is not None:
+        for pattern, claim_files in claims:
+            text = getattr(pattern, "pattern", pattern)
+            for name in claim_files:
+                path, rel = _resolve(root, name)
+                if not os.path.exists(path):
+                    continue
+                for pkg in held:
+                    stated = [w for where in found.get(pkg, {}).values() for w in where
+                              if w.startswith(rel + ":") and w.endswith(" (prose)")]
+                    if not stated:
+                        bad.append("%s states no %s ref in a form `pins` reads (%s)"
+                                   % (rel, pkg, text))
+    return bad, sum(len(where) for pkg in held for where in found.get(pkg, {}).values())
